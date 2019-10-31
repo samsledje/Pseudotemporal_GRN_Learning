@@ -1,0 +1,257 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r  results='hide', message=FALSE}
+source('DEG_HL_functions.R')
+source('DEG_HL_plots.R')
+library(ACTIONet)
+library(scran)
+library(scater)
+library(threejs)
+library(readxl)
+library(viridis)
+library(colorspace)
+library(harmony)
+library(Polychrome)
+set.seed(0)
+```
+
+```{r  results='hide', message=FALSE}
+obj_dir = 'objects/'
+ACTIONet_obj <- readRDS(paste0(obj_dir,'ACTIONet_control_iter_4.rds'))
+sce <- readRDS(paste0(obj_dir,'sce_control_iter_4.rds'))
+```
+
+
+```{r}
+# Cell Markers
+Endothelial = c('Cldn5', 'Pecam1', 'Ocln', 'Slc2a1', 'Abcb1', 'Sema3g', 'Bmx', 'Mfsd2a', 'Tfrc', 'Slc38a5') #,'Nr2f2')
+Mural = c('Pdgfrb', 'Kcnj8', 'Acta2', 'Myl9')# 'Myh11', 'Vtn', 'Abcc9')
+Astrocyte = c('Gfap', 'Aqp4', 'Clu', 'Aldh1l1')#, 'S100b')
+Oligodendrocyte = c('Mog', 'Mbp', 'Plp1', 'Apod')
+Oligo_Prog = c('Pdgfra','Vcan', 'Olig2', 'C1ql1')
+Microglia = c('C1qb', 'C1qa', 'Csf1r', 'Ctss', 'Tmem119')#, 'Cd74', 'Aif1', 'Cd68')
+dSPN = c('Drd1', 'Pdyn', 'Chrm4', 'Foxp2', 'Chrm4')
+iSPN = c('Drd2', 'Adora2a', 'Gpr6', 'Penk', 'Sp9')
+Cholinergic_IN = c('Chat', 'Slc5a7')#, 'MT-CO3-', 'MT-ATP6-', 'MT-CO2-')
+GABAergic_IN = c('Npy', 'Sst', 'Nos1') # , 'Lhx6')
+PV_IN = c('Pvalb', 'Cox6a2', 'Kit', 'Crtac1', 'Adamts5')
+T_cell = c('Cd4', 'Cd8a')
+Cil_ependymal = c('Hydin', 'Armc4', 'Dnali1', 'Spag17')
+Sec_ependymal = c('Npr3', 'Prlr', 'Slc4a5')
+MT_RNA = c('mt-Nd1', 'mt-Nd2', 'mt-Nd3', 'mt-Nd4','mt-Nd4l', 'mt-Nd5', 'mt-Nd6', 'mt-Co1', 'mt-Co2', 'mt-Co3', 'mt-Cytb', 'mt-Atp6', 'mt-Atp8')
+
+marker_genes = list('Endothelial' = Endothelial, 
+                      'Mural' = Mural, 
+                      'Astrocyte' = Astrocyte, 
+                      'Oligodendrocyte' = Oligodendrocyte, 
+                      'OPC' = Oligo_Prog,
+                      'Microglia' = Microglia, 
+                      'dSPN' = dSPN, 
+                      'iSPN' = iSPN, 
+                      'Cholinergic_Interneuron' = Cholinergic_IN, 
+                      'GABAergic_Interneuron' = GABAergic_IN,
+                      'T-Cell' = T_cell,
+                      'PV_Interneuron' = PV_IN,
+                      'Cil_Ependymal' = Cil_ependymal,
+                      'Sec_Ependymal' = Sec_ependymal
+                    )
+
+marker_genes <- marker_genes[order(names(marker_genes))]
+```
+
+
+```{r}
+# sce <- reduce.and.batch.with.harmony(sce, reduced_dim = 35, harmony_iters = 30, reduce_iters = 5)
+sce <- reduce.and.batch.correct.sce.MNN(sce, batch.attr = sce$batch, reduced_dim = 50)
+# sce <- reduce.sce(sce, max.iter = 10, reduced_dim = 60)
+# sce@reducedDims$S_r <- HarmonyMatrix(sce@reducedDims$S_r, sce$batch, do_pca = F, max.iter.harmony = 30)
+ACTIONet_obj <- run.ACTIONet(sce, k_max = 40, thread_no = 12, compactness_level = 40)
+
+```
+
+
+```{r}
+excluded.types = NULL
+celltype.annotation = list()
+cell_attr_table = list()
+mrks = subset(marker_genes, !( names(marker_genes) %in% excluded.types) )
+
+if(dim(sce)[2] == length(V(ACTIONet_obj$ACTIONet))){
+this_ACTIONet <- ACTIONet_obj
+this_ACTIONet <- change.ACTIONet.gene.name.format(this_ACTIONet, sce = sce, symType = 'GeneSym')
+
+this_annotation <- annotate.cells.using.markers(this_ACTIONet, sce = sce, marker.genes = mrks, alpha_val = 0.9, rand.sample.no = 1000, thread_no = 12)
+this_annotation$Labels <- update.Labels(this_ACTIONet, this_annotation$Labels, max.iter = 3,  update_th = -1.5)
+clusters <- cluster.ACTIONet(this_ACTIONet, thread_no = 12)
+this_annotation$clusters <- clusters
+# cAttr_tmp <- make.cell.attributes.table(sce = sce, annotations = this_annotation, sce_attr = 'batch')
+
+ACTIONet_obj <- this_ACTIONet
+celltype.annotation <- this_annotation
+celltype.annotation$Labels <- droplevels(celltype.annotation$Labels)
+# cell_attr_table <- cAttr_tmp
+# cell_attr_table$CellType <- droplevels(cell_attr_table$CellType)
+# remaining_celltypes <- levels(cell_attr_table$CellType)
+
+# filter_table <- filter.annotated.cells(cell_attr_table, keep_only = remaining_celltypes, conf_th = qnorm(0.99))
+counts_mat <- sce@assays[['counts']]
+
+# cell_counts <- table(cell_attr_table$CellType)
+cell_counts <- table(celltype.annotation$Labels)
+print(cell_counts)
+} else{stop('Dimensions don\'t match')}
+
+```
+
+```{r}
+arch_annots <- annotate.archetype(ACTIONet_obj, celltype.annotation$Labels)
+arch_profile <- data.frame(ACTIONet_obj$signature.profile)
+colnames(arch_profile) <- arch_annots$archetypeLabels
+```
+
+
+```{r}
+prune_th = -1.65
+conf_th = -2.25
+low_conf = c()
+low_deg = c()
+ignore_celltype = NULL
+ignore_celltype = c('Cholinergic_Interneuron', 'Mural')#, 'D2-MSN', 'Endothelial',
+
+tmp_ACTION_obj <- ACTIONet_obj
+tmp_sce <- sce
+tmp.annot <- celltype.annotation
+tmp.annot_old <- tmp.annot
+
+cn = coreness(tmp_ACTION_obj$ACTIONet)
+z_deg = scale(cn)
+z_conf <- scale(tmp.annot$Labels.confidence)
+low_deg = which(z_deg < prune_th)
+low_conf = which(z_conf < conf_th)
+fil_cells = union(low_deg, low_conf)
+if(!is.null(ignore_celltype)){fil_cells = fil_cells[-which(tmp.annot$Labels[fil_cells] %in% ignore_celltype)]}
+tmp_ACTION_obj <- remove.cells(tmp_ACTION_obj, fil_cells, force = T)
+tmp_sce <- tmp_sce[, tmp_ACTION_obj$selected.cells]
+tmp.annot <- remove.cells.from.annotations(tmp.annot, tmp_ACTION_obj$selected.cells, keep_cells = TRUE)
+tmp.count_mat <- tmp_sce@assays[['counts']]
+
+print(table(tmp.annot_old$Labels[low_deg]))
+print(table(tmp.annot_old$Labels[low_conf]))
+print(table(tmp.annot_old$Labels[fil_cells]))
+print(table(tmp.annot_old$Labels[tmp_ACTION_obj$selected.cells]))
+```
+
+```{r}
+ACTIONet_obj <- tmp_ACTION_obj
+sce <- tmp_sce
+celltype.annotation <- tmp.annot
+counts_mat <- tmp.count_mat
+```
+
+```{r}
+plot(density(z_deg))
+hist(z_conf, breaks = 1000)
+```
+
+#SAVE STATE
+```{r}
+ACTION_bak <-  ACTIONet_obj
+sce_bak <- sce
+annot_bak <- celltype.annotation
+```
+
+#LOAD STATE
+```{r}
+ACTIONet_obj <- ACTION_bak
+sce <- sce_bak
+celltype.annotation <- annot_bak
+```
+
+
+```{r}
+color_pal <- 'd3'
+# color_pal <- sample(grDevices::rainbow(9))
+# color_pal <- sample(grDevices::palette())
+color_pal <- grDevices::rainbow(150)[seq(0, 150, 10)]
+color_pal <- alphabet.colors(15)
+cex = 2
+node.size = 6
+marker.per.cell = 10
+```
+
+
+```{r}
+plot.ACTIONplot(ACTION_bak, CPal = 'd3')
+plot.ACTIONplot(ACTIONet_obj, CPal = 'd3')
+# svg()
+plot.ACTIONplot(ACTION_bak, color.attr = annot_bak$Labels, transparency.attr = annot_bak$Labels.confidence, CPal = color_pal)
+plot.ACTIONplot(ACTION_bak, color.attr = annot_bak$Labels, CPal = color_pal)
+
+
+plot.ACTIONplot(ACTIONet_obj, color.attr = celltype.annotation$Labels, transparency.attr = celltype.annotation$Labels.confidence, CPal = color_pal)
+# svg('ACTIONet_control.svg')
+plot.ACTIONplot(ACTIONet_obj, color.attr = celltype.annotation$Labels, CPal = color_pal)
+
+# 
+# plot.ACTIONplot(ACTIONet_obj, color.attr = celltype.annotation$clusters, CPal = color_pal)
+
+# plot.ACTIONplot(ACTIONet_obj, color.attr = sce$batch, CPal = 'd3')
+
+# png(width = 1300, height = 1300, pointsize = 30, units = "px")
+
+plot.ACTIONet.3D(ACTIONet_obj, color.attr = celltype.annotation$Labels, CPal = color_pal)
+```
+```{r}
+visualize.markers(ACTIONet_obj, sce, marker.genes = c(marker_genes$Astrocyte))
+png(width = 500, height = 500, units = "px")
+visualize.markers(ACTIONet_obj, sce, marker.genes = MT_RNA)
+dev.off()
+visualize.markers(ACTIONet_obj, sce, marker.genes = c('Drd2', marker_genes$Cil_Ependymal))
+```
+
+
+```{r}
+c_level = 30
+ACTIONet_obj <-  rerun.layout(ACTIONet_obj, sce, compactness_level = c_level)
+plot.ACTIONplot(ACTIONet_obj, color.attr = celltype.annotation$Labels, CPal = color_pal)
+# saveRDS(joint_ACTIONet_relayed, file = paste0('joint_ACTIONet_', c_level,'.rds'))
+```
+
+```{r}
+
+p <- plot.ACTIONplot.interactive(ACTIONet_obj, sce, labels = celltype.annotation$Labels, annotate.cells = TRUE, marker.per.cell = 10, node.size = 3)
+p
+
+q <- plot.ACTIONplot.interactive(ACTIONet_obj, sce, labels = celltype.annotation$clusters, Alt_Text = celltype.annotation$clusters, annotate.cells = TRUE, node.size = 4)
+q
+
+r <- plot.ACTIONet.interactive(ACTIONet_obj, sce, labels = as.character(sce$batch), node.size = 6, annotate.cells = TRUE, marker.per.cell = 10, blacklist.pattern = '\\.|^RPL|^RPS|^MRP|^RP')
+r
+
+s <- plot.ACTIONplot.interactive(ACTIONet_obj, sce, labels = sce$region, Alt_Text = sce$region, annotate.cells = TRUE, node.size = 2, title = "Cells by Region")
+s
+
+t <- plot.ACTIONplot.interactive(ACTIONet_obj, sce, labels = sce$grade, Alt_Text = sce$grade, annotate.cells = TRUE, node.size = 4, title = "Cells by Grade")
+t
+
+u <- plot.ACTIONplot.interactive(ACTIONet_obj, sce, labels = celltype.annotation$Labels, Alt_Text = seq(1:length(celltype.annotation$Labels)), annotate.cells = TRUE, node.size = 4)
+u
+
+g <- plot.ACTIONplot.interactive(ACTIONet_obj, sce, labels = as.numeric(sce$GFP_pos), annotate.cells = TRUE, node.size = 4)
+g
+
+```
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.

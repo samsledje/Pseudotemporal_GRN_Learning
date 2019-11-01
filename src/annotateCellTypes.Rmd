@@ -1,0 +1,161 @@
+---
+title: "Annotate Cell Types and Save Individual Cell-Type ACTIONet Objects"
+output:
+  html_notebook: default
+  pdf_document: default
+---
+```{r setup, include=FALSE, echo=FALSE}
+require("knitr")
+opts_knit$set(root.dir = "/home/samsl/Pseudotemporal-GRNs")
+```
+
+```{r "Load Libraries", warning=FALSE, include=FALSE, results='hide'}
+require(ACTIONet)
+require(SingleCellExperiment)
+require(Matrix)
+require(scater)
+require(scran)
+```
+
+# Create SingleCellExperiment Object
+If using an mtx file and metadata, create an sce object. If you already have an SCE, Seurat, or AnnData object, skip to the relevant section.
+```{r "Create Single Cell Experiment"}
+# Matrix and Metadata files
+matrix.file.name = "data/Processed_10x_AD_data/filtered_count_matrix.mtx"
+colMetadata.file.name = "data/Processed_10x_AD_data/filtered_column_metadata.txt"
+idMapping.file.name = "data/Processed_10x_AD_data/id_mapping.csv"
+rowNames.file.name = "data/Processed_10x_AD_data/filtered_gene_row_names.txt"
+
+# Read in counts and metadata
+filtered.counts <- readMM(matrix.file.name)
+filtered.colMetadata <- read.delim(colMetadata.file.name)
+filtered.colMetadata$pre.cluster <- factor(filtered.colMetadata$pre.cluster)
+
+# Map cells to their samples
+idMapping <- read.table(idMapping.file.name, header = TRUE, sep = ",", stringsAsFactors = FALSE)
+filtered.colMetadata$Subject <- lapply(filtered.colMetadata$projid, function(x) { idMapping$Subject[[match(x,idMapping$projid)]] })
+
+# Assign row names (genes) and column names (cell tags)
+rownames(filtered.counts) <- readLines(rowNames.file.name)
+colnames(filtered.counts) <- filtered.colMetadata$TAG
+
+# Create tsne array
+tsneDims <- filtered.colMetadata[c("tsne1", "tsne2")]
+
+# Create SCE
+colData <- filtered.colMetadata[c("projid","Subject","pre.cluster","broad.cell.type","Subcluster")]
+sce <- SingleCellExperiment(assays = list(counts =filtered.counts), colData = colData)
+reducedDim(sce) <- tsneDims
+reducedDimNames(sce) <- "tsne"
+
+```
+
+## Processing
+Normalize to log counts and perform batch correction with Harmony.
+```{r "Reduce and Batch Correct"}
+# Reduce and Batch Correct
+if (is.null(sce$batch)) {
+  sce <- reduce.sce(sce)
+} else {
+  sce <- reduce.and.batch.correct.sce.Harmony(sce, reduced_dim = 35, harmony_iters = 30, reduce_iters = 5)
+}
+```
+
+Add gene metadata from biomart, including  ensembl symbol and position on the chromosome.
+```{r "Biomart Annotation"}
+# Add Biomart Information to Genes
+require(biomaRt)
+mart=useMart(biomart="ensembl", dataset="hsapiens_gene_ensembl")
+
+bm.attributes <- c("ensembl_gene_id", "start_position", "end_position", "chromosome_name")
+sce <- getBMFeatureAnnos(sce, filters="gene.id",
+                            attributes = bm.attributes,
+                            dataset = "hsapiens_gene_ensembl")
+```
+
+### Load from processed SCE Object
+```{r "Load from SCE"}
+# SCE file name
+sce.file.name <- "data/sce.rds"
+
+sce <- readRDS(sce.file.name)
+```
+
+### Load from Seurat Object
+```{r "Load from Seurat"}
+# Seurat File Name
+seurat.file.name <- ""
+
+sce <- import.sce.from.Seurat(readRDS(file = seurat.file.name))
+```
+
+### Load from AnnData File
+```{r "Load from AnnData"}
+# AnnData File Name
+anndata.file.name <- ""
+
+sce <- import.sce.from.AnnData(file = anndata.file.name)
+```
+
+## Save
+Save the SCE for future analyses.
+```{r "Save SCE", result='hide'}
+sce.file.name <- "data/sce.rds"
+saveRDS(sce, file = sce.file.name)
+```
+
+# Annotate Cell Types
+Compute ACTIONet and use it to annotate cells according to their cell type given a set of cell type markers.
+```{r "Compute ACTIONet"}
+ACTIONet.out <- run.ACTIONet(sce, k_max = 20, thread_no = 12)
+```
+Select the appropriate cell type markers from the set of curated markers.
+```{r "Select Markers"}
+data("curatedMarkers_human")
+markers <- curatedMarkers_human$Brain$PFC$major.celltypes$marker.genes
+```
+Run cell type annotation.
+```{r "Annotate Cell Types Using Markers"}
+# Annotate cell types
+ACTIONet.out <- annotate.cells.from.archetypes.using.markers(ACTIONet.out,
+                                                             markers,
+                                                             annotation.name = "Cell.Types")
+```
+Visualize the cell types.
+```{r "Plot cell types"}
+plot.ACTIONet(ACTIONet.out, labels = ACTIONet.out$annotations$Cell.Types$Labels)
+```
+Save the full annotated ACTIONet object for later analyses.
+```{r "Save annotated"}
+# Full ACTIONet File
+full.ACTIONet.file <- "data/allCellsACTIONet.rds"
+
+# Save annotated full ACTIONet
+saveRDS(ACTIONet.out, file = full.ACTIONet.file)
+```
+
+### Load Annotated ACTIONet
+```{r "Load Annotated ACTIONet"}
+ACTIONet.out <- readRDS(ACTIONet.out, file = full.ACTIONet.file)
+```
+
+## Save SCE and ACTIONet For Each Cell Type
+We want to re-run ACTIONet for each subset of cells to learn archetypes within a cell type
+```{r "Create ACTIONet for each cell type"}
+cell.type.file.dir = "data"
+
+for (cell.type in names(markers)) {
+  print(paste("Running ACTIONet for",cell.type,"cells..."))
+  keep.cells <- colnames(sce)[which(ACTIONet.out$annotations$Cell.Types$Labels == cell.type)]
+  if (length(keep.cells) == 0) {
+    print(paste("No cells labeled as ",cell.type))
+    next 
+  }
+  cell.type.sce = sce[,keep.cells]
+  cell.type.ACTIONet = run.ACTIONet(cell.type.sce, k_max = 20, thread_no = 12)
+  saveRDS(cell.type.sce, file = paste(cell.type.file.dir,"/",cell.type,"_sce.rds",sep=""))
+  saveRDS(cell.type.ACTIONet, file = paste(cell.type.file.dir,"/",cell.type,"_ACTIONet.rds",sep=""))
+}
+
+```
+Now we can perform the analyses in constructPseudotemporalOrdering.Rmd using each `[cell.type]_sce.rds` and `[cell.type]_ACTIONet.rds`.

@@ -1,0 +1,92 @@
+---
+title: "constructPseudotemporalOrdering.Rmd"
+output:
+  html_notebook: default
+  pdf_document: default
+---
+```{r setup, include=FALSE, echo=FALSE}
+require("knitr")
+opts_knit$set(root.dir = "/home/samsl/Pseudotemporal-GRNs")
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r "Load Libraries", warning=FALSE, include=FALSE, results='hide'}
+require(ACTIONet)
+require(SingleCellExperiment)
+require(Seurat)
+require(monocle)
+```
+
+### Load SCE and ACTIONet for a specific cell type
+Choose from cell types:
+  - Astrocytes: "Ast"
+  - Excitatory Neurons: "Ex"
+  - Inhibitory Neurons: "In"
+  - Microglia: "Mic"
+  - Oligodendrocytes: "Oli"
+  - Oligodendrocyte Progenitor Cells: "OPC"
+```{r "Load Data"}
+# Select cell type from list
+cell.type = "Oli"
+sce.file.name <- paste("/home/samsl/Pseudotemporal-GRNs/data/",cell.type,"_sce.rds",sep="")
+ACTIONet.file.name <- paste("/home/samsl/Pseudotemporal-GRNs/data/",cell.type,"_ACTIONet.rds",sep="")
+sce <- readRDS(sce.file.name)
+ACTIONet.out <- readRDS(ACTIONet.file.name)
+```
+
+# Identify Ordering Genes
+To produce a pseudotemporal ordering of cell states, we have to identify genes which are differentially up or downregulated throughout disease progression. We can use `braaksc`, `ceradsc`, or `cogdx` as clinical indicators of disease progression. For now, we will use `ceradsc`.
+```{r "Find Cluster Markers"}
+# Import Clinical Data from ROSMAP
+clinical <- read.table("/home/samsl/Pseudotemporal-GRNs/data/Processed_10x_AD_data/ROSMAP_Clinical_2019-05_v3.csv", header = TRUE, sep=",")
+
+cogdx.ind <- factor(unlist(lapply(colData(sce)$projid, function (x) { clinical[which(clinical$projid == x),"cogdx"] })))
+braak.ind <- factor(unlist(lapply(colData(sce)$projid, function (x) { clinical[which(clinical$projid == x),"braaksc"] })))
+cerad.ind <- factor(unlist(lapply(colData(sce)$projid, function (x) { clinical[which(clinical$projid == x),"ceradsc"] })))
+
+# Annotate ACTIONet with each clinical indicator
+ACTIONet.out <- add.cell.annotations(ACTIONet.out, cogdx.ind, annotation.name="cogdx")
+ACTIONet.out <- add.cell.annotations(ACTIONet.out, braak.ind, annotation.name="braak")
+ACTIONet.out <- add.cell.annotations(ACTIONet.out, cerad.ind, annotation.name="ceradsc")
+
+# Visualize how clinical indicator separates the cells in the ACTIONet
+plot.ACTIONet(ACTIONet.out, labels = cerad.ind)
+
+# Identify markers of disease progression
+markers <- find.cluster.markers(sce, cerad.ind)
+marker.names <- lapply(markers, rownames)
+top.N.genes = 25
+top.markers <- lapply(marker.names, function (x) { x[1:top.N.genes]})
+
+# Visualize how marker sets overlap
+combMat <- make_comb_mat(top.markers, mode='intersect')
+UpSet(combMat)
+
+# Visualize how each marker separates the cells in the ACTIONet (will take a long time and generate many plots with large N genes)
+visualize.markers(ACTIONet.out, sce, top.markers)
+```
+
+# Cluster into Archetypes
+Use ACTIONet to annotate archetype cells with the markers found for disease progression.
+```{r "Archetypal Clustering"}
+
+# Cluster cells based on markers for cerad level
+ACTIONet.out <- annotate.cells.from.archetypes.using.markers(ACTIONet.out,
+                                                             top.markers,
+                                                             annotation.name="Progression")
+
+# Visualize clusters
+plot.ACTIONet(ACTIONet.out, labels=ACTIONet.out$annotations$Progression$Labels, transparency.attr = ACTIONet.out$annotations$Progression$Labels.confidence)
+```
+
+# Monocle
+```{r Monocle}
+
+```
+
+# Subset Cells
+Get only the cells from the subcluster that you want, using only the marker genes. Do this for each subcluster to get the layers.
+```{r Subset}
+subSce <- sce[unlist(top.markers),which(ACTIONet.out$annotations$ceradsc$Labels == 1)]
+subCounts <- counts(subSce)
+```

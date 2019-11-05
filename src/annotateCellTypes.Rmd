@@ -9,7 +9,7 @@ require("knitr")
 opts_knit$set(root.dir = "/home/samsl/Pseudotemporal-GRNs")
 ```
 
-```{r "Load Libraries", warning=FALSE, include=FALSE, results='hide'}
+```{r "Load Libraries", warning=FALSE, include=TRUE, results='hide'}
 require(ACTIONet)
 require(SingleCellExperiment)
 require(Matrix)
@@ -33,7 +33,7 @@ filtered.colMetadata$pre.cluster <- factor(filtered.colMetadata$pre.cluster)
 
 # Map cells to their samples
 idMapping <- read.table(idMapping.file.name, header = TRUE, sep = ",", stringsAsFactors = FALSE)
-filtered.colMetadata$Subject <- lapply(filtered.colMetadata$projid, function(x) { idMapping$Subject[[match(x,idMapping$projid)]] })
+filtered.colMetadata$Subject <- as.factor(unlist(lapply(filtered.colMetadata$projid, function(x) { idMapping$Subject[[match(x,idMapping$projid)]] })))
 
 # Assign row names (genes) and column names (cell tags)
 rownames(filtered.counts) <- readLines(rowNames.file.name)
@@ -47,6 +47,7 @@ colData <- filtered.colMetadata[c("projid","Subject","pre.cluster","broad.cell.t
 sce <- SingleCellExperiment(assays = list(counts =filtered.counts), colData = colData)
 reducedDim(sce) <- tsneDims
 reducedDimNames(sce) <- "tsne"
+rowData(sce)$hgnc_symbol <- rownames(sce)
 
 ```
 
@@ -54,11 +55,7 @@ reducedDimNames(sce) <- "tsne"
 Normalize to log counts and perform batch correction with Harmony.
 ```{r "Reduce and Batch Correct"}
 # Reduce and Batch Correct
-if (is.null(sce$batch)) {
-  sce <- reduce.sce(sce)
-} else {
-  sce <- reduce.and.batch.correct.sce.Harmony(sce, reduced_dim = 35, harmony_iters = 30, reduce_iters = 5)
-}
+sce <- reduce.and.batch.correct.sce.Harmony(sce, batch.vec = colData(sce)$Subject, reduced_dim = 35)
 ```
 
 Add gene metadata from biomart, including  ensembl symbol and position on the chromosome.
@@ -68,7 +65,7 @@ require(biomaRt)
 mart=useMart(biomart="ensembl", dataset="hsapiens_gene_ensembl")
 
 bm.attributes <- c("ensembl_gene_id", "start_position", "end_position", "chromosome_name")
-sce <- getBMFeatureAnnos(sce, filters="gene.id",
+sce <- getBMFeatureAnnos(sce, filters="hgnc_symbol",
                             attributes = bm.attributes,
                             dataset = "hsapiens_gene_ensembl")
 ```
@@ -76,7 +73,7 @@ sce <- getBMFeatureAnnos(sce, filters="gene.id",
 ### Load from processed SCE Object
 ```{r "Load from SCE"}
 # SCE file name
-sce.file.name <- "data/sce.rds"
+sce.file.name <- "~/Pseudotemporal-GRNs/data/sce.rds"
 
 sce <- readRDS(sce.file.name)
 ```
@@ -105,25 +102,23 @@ saveRDS(sce, file = sce.file.name)
 ```
 
 # Annotate Cell Types
-Compute ACTIONet and use it to annotate cells according to their cell type given a set of cell type markers.
+Run ACTIONet to create the ACTIONet object and allow for cell state discovery and cell type annotation.
 ```{r "Compute ACTIONet"}
 ACTIONet.out <- run.ACTIONet(sce, k_max = 20, thread_no = 12)
 ```
-Select the appropriate cell type markers from the set of curated markers.
-```{r "Select Markers"}
+Once the ACTIONet has been constructed, choose the set of markers for the cell types in your sample and run annotation using those markers.
+```{r "Cell Type Annotation"}
+# Select Marker Set
 data("curatedMarkers_human")
 markers <- curatedMarkers_human$Brain$PFC$major.celltypes$marker.genes
-```
-Run cell type annotation.
-```{r "Annotate Cell Types Using Markers"}
+
 # Annotate cell types
 ACTIONet.out <- annotate.cells.from.archetypes.using.markers(ACTIONet.out,
                                                              markers,
                                                              annotation.name = "Cell.Types")
-```
-Visualize the cell types.
-```{r "Plot cell types"}
-plot.ACTIONet(ACTIONet.out, labels = ACTIONet.out$annotations$Cell.Types$Labels)
+
+# Plot to show cell types
+plot.ACTIONet(ACTIONet.out, labels = ACTIONet.out$annotations$Cell.Types$Labels, transparency.attr = ACTIONet.out$annotations$Cell.Types$Labels.confidence)
 ```
 Save the full annotated ACTIONet object for later analyses.
 ```{r "Save annotated"}
@@ -136,12 +131,15 @@ saveRDS(ACTIONet.out, file = full.ACTIONet.file)
 
 ### Load Annotated ACTIONet
 ```{r "Load Annotated ACTIONet"}
-ACTIONet.out <- readRDS(ACTIONet.out, file = full.ACTIONet.file)
+# Full ACTIONet File
+full.ACTIONet.file <- "~/Pseudotemporal-GRNs/data/allCellsACTIONet.rds"
+
+ACTIONet.out <- readRDS(file = full.ACTIONet.file)
 ```
 
 ## Save SCE and ACTIONet For Each Cell Type
 We want to re-run ACTIONet for each subset of cells to learn archetypes within a cell type
-```{r "Create ACTIONet for each cell type"}
+```{r "Create ACTIONet for each cell type", result='hide'}
 cell.type.file.dir = "data"
 
 for (cell.type in names(markers)) {

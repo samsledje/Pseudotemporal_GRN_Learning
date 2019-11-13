@@ -118,7 +118,9 @@ ACTIONet.out <- annotate.cells.from.archetypes.using.markers(ACTIONet.out,
                                                              annotation.name = "Cell.Types")
 
 # Plot to show cell types
+png('img/ACTIONet_cell_types.png')
 plot.ACTIONet(ACTIONet.out, labels = ACTIONet.out$annotations$Cell.Types$Labels, transparency.attr = ACTIONet.out$annotations$Cell.Types$Labels.confidence)
+dev.off()
 ```
 Save the full annotated ACTIONet object for later analyses.
 ```{r "Save annotated"}

@@ -1,13 +1,26 @@
-setwd("/Users/dkaur/Documents/Pseudotemporal_GRN_Learning")
+setwd("/home/samsl/Pseudotemporal-GRNs")
 
-files <- c("data/DataMatrices/noAD_Oli.rds",
-           "data/DataMatrices/possibleAD_Oli.rds",
-           "data/DataMatrices/probableAD_Oli.rds",
-           "data/DataMatrices/definiteAD_Oli.rds"
+files <- c("data/Oli/noAD_Oli.rds",
+           "data/Oli/possibleAD_Oli.rds",
+           "data/Oli/probableAD_Oli.rds",
+           "data/Oli/definiteAD_Oli.rds"
            )
 
 library(bnlearn)
 library(dplyr)
+
+clusts <- readRDS(paste0("data/",cell.type,"/clusters.rds"))
+df <- readRDS(paste0("data/",cell.type,"/top_gene_counts.rds"))
+cell.type = "Mic"
+K.clusters = 3
+
+t1 = t(df[clusts$Cluster == 1,])
+rownames(t1) <- paste0(rownames(t1),"_t1")
+t2 = t(df[clusts$Cluster == 2,])
+rownames(t2) <- paste0(rownames(t2),"_t2")
+t3 = t(df[clusts$Cluster == 3,])
+rownames(t3) <- paste0(rownames(t3),"_t3")
+
 
 mat_to_df <- function(matrix,time){
   # matrix should have genes as rows, cells as columns
@@ -56,4 +69,4 @@ network <- iamb(bndf, blacklist = bl)
 
 # output edges of graph
 network[["arcs"]]
-
+graphviz.plot(network,groups=list(t1=rownames(t1),t2=rownames(t2),t3=rownames(t3)))

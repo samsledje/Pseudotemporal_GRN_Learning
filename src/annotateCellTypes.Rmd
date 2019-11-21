@@ -12,6 +12,7 @@ opts_knit$set(root.dir = "/home/samsl/Pseudotemporal-GRNs")
 ```{r "Load Libraries", warning=FALSE, include=TRUE, results='hide'}
 require(ACTIONet)
 require(SingleCellExperiment)
+require(ComplexHeatmap)
 require(Matrix)
 require(scater)
 require(scran)
@@ -137,6 +138,167 @@ saveRDS(ACTIONet.out, file = full.ACTIONet.file)
 full.ACTIONet.file <- "~/Pseudotemporal-GRNs/data/allCellsACTIONet.rds"
 
 ACTIONet.out <- readRDS(file = full.ACTIONet.file)
+```
+
+```{r "Identify disease enriched archetype"}
+# Identify disease enriched archetype
+data("nanoStringDB_human")
+ADmarkers <- nanoStringDB_human$AD
+enrichment.out <- t(geneset.enrichment.archetype(ACTIONet.out, ADmarkers))
+png("All_cell_state_disease_association.png")
+Heatmap(t(enrichment.out), cluster_columns=FALSE, cluster_rows=FALSE, name='Enrichment', column_title='Cell State', column_title_side='bottom')
+```
+
+```{r "Calculate disease scores"}
+correlated.state <- which.max(enrichment.out[,2])
+
+disease.score <- ACTIONet.out$unification.out$H.core[correlated.state,]
+core.significance <- ACTIONet.out$unification.out$DE.core@assays[["significance"]]
+associated.genes <- rownames(core.significance)[order(core.significance[,correlated.state], decreasing=TRUE)]
+ACTIONet.out <- add.cell.annotations(ACTIONet.out, disease.score, annotation.name = "disease.score")
+plot.ACTIONet.gradient(ACTIONet.out,disease.score)
+```
+
+```{r}
+plot.ACTIONet <- function(ACTIONet.out, labels = NULL, transparency.attr = NULL, trans.z.threshold = -0.5, trans.fact = 3, 
+	node.size = 1, CPal = ACTIONet.color.bank, add.text = FALSE, text.halo.width = 0.1, label.text.size = 0.8, 
+    suppress.legend = FALSE, legend.pos = "bottomright", add.states = F, title = "", highlight = F) {
+    
+    node.size = node.size * 0.5
+    
+    if (is.igraph(ACTIONet.out)) 
+        ACTIONet = ACTIONet.out else ACTIONet = ACTIONet.out$ACTIONet
+    
+    coors = cbind(V(ACTIONet)$x, V(ACTIONet)$y)
+
+	if( (length(labels) == 1) & (is.character(labels)) ) {
+		annotation_name = labels
+	} else {
+		annotation_name = "plot.ACTIONet-tmp"
+	}	
+    
+	labels = preprocess.labels(ACTIONet.out, labels)
+
+	if( !is.null(labels) & (highlight == T) ) {
+		if( annotation_name == "plot.ACTIONet-tmp") {
+			ACTIONet.out = add.cell.annotations(ACTIONet.out, cell.annotations = labels, annotation.name = annotation_name)
+		}
+		
+		if( is.null(ACTIONet.out$annotations[[annotation_name]]$highlight) ) {
+			print("Labels are not highlighted ... generating highlight on the fly")
+			ACTIONet.out = highlight.annotations(ACTIONet.out, annotation.name = annotation_name)			
+		}
+		label.hightlight = ACTIONet.out$annotations[[annotation_name]]$highlight
+		
+		if( !is.null(transparency.attr) ) {
+			print(class(transparency.attr))
+			print("highlight=T while transparency.attr is not NULL. Overwriting transparency.attr with highlight values")
+		}
+		transparency.attr = label.hightlight$connectivity.scores		
+	}
+	
+	if(is.null(labels)) {
+        vCol = V(ACTIONet)$color
+        Annot = NULL
+	} else {
+		Annot = names(labels)[match(sort(unique(labels)), labels)]		
+		if(length(CPal) > 1) {
+            Pal = CPal[1:length(Annot)]			
+		} else {
+            Pal = ggpubr::get_palette(CPal, length(Annot))
+		}
+        names(Pal) = Annot
+        vCol = Pal[names(labels)]
+	}
+
+
+
+    if (!is.null(transparency.attr)) {
+        #z = (transparency.attr - median(transparency.attr))/mad(transparency.attr)
+        z = scale(transparency.attr)  
+      beta = 1/(1 + exp(-trans.fact * (z - trans.z.threshold)))
+        beta[z > trans.z.threshold] = 1
+        beta = beta^trans.fact
+        
+        vCol.border = scales::alpha(colorspace::darken(vCol, 0.5), beta)
+        vCol = scales::alpha(vCol, beta)
+    } else {
+        vCol.border = colorspace::darken(vCol, 0.5)
+    }
+
+    graphics::plot(coors[, c(1, 2)], pch = 21, cex = node.size, bg = vCol, col = vCol.border, axes = FALSE, xlab = "", ylab = "", main = title)
+
+	if(add.states == T) {
+		par(new=TRUE)
+		
+		M = as(ACTIONet.out$unification.out$C.core, 'sparseMatrix')
+		cs = Matrix::colSums(M)
+		M = scale(M, center = FALSE, scale = cs)
+		
+	    cell.Lab = grDevices::convertColor(color = t(col2rgb(vCol)/256), from = "sRGB", to = "Lab")	    
+	    core.Lab = t(t(cell.Lab) %*% M)
+	    core.colors = rgb(grDevices::convertColor(color = core.Lab, from = "Lab", to = "sRGB"))
+		core.colors = colorspace::lighten(core.colors, 0.1)
+		
+		core.coors = t(t(ACTIONet.out$vis.out$coordinates) %*% M)		
+	    
+	    graphics::plot(core.coors, pch = 25, cex = 4*node.size, bg = core.colors, col = "#eeeeee", axes = FALSE, xlab = "", ylab = "")
+	}    
+    
+    
+    if ( add.text == T & (!is.null(Annot)) ) {
+    	require(wordcloud)
+        centroids = t(sapply(Annot, function(l) {
+            idx = which(names(labels) == l)
+            if(length(idx) == 1) {
+				return(as.numeric(coors[idx, ]))
+			} 
+
+            sub.coors = coors[idx, ]
+            anchor.coor = as.numeric(apply(sub.coors, 2, function(x) mean(x, trim = 0.5)))
+#             sub.coors.sq = sub.coors^2
+# 			norm.sq = Matrix::rowSums(sub.coors.sq)
+# 			anchor.idx = which.min(sapply(1:nrow(sub.coors.sq), function(i) { 
+# 				dd = norm.sq[i] + norm.sq - 2* sub.coors %*% sub.coors[i, ]
+# 				mean.dist.sq = median(dd)
+# 				return(mean.dist.sq)
+# 			}))
+            
+                        
+            # D = as.matrix(dist(sub.coors))
+            # stats = Matrix::rowMeans(D)
+            # anchor.idx = which.min(stats)
+            
+			# anchor.coor = as.numeric(sub.coors[anchor.idx, ])            
+            
+			return(anchor.coor)
+        }))
+        layout.labels(x = centroids[, 1], y = centroids[, 2], labels = Annot, col = colorspace::darken(Pal, 0.5), bg = "#eeeeee", r = text.halo.width, cex = label.text.size)
+        #wordcloud::textplot(x = centroids[, 1], y = centroids[, 2], new = F, words = Annot, col = colorspace::darken(Pal, 0.5), bg = "#eeeeee") 
+    }
+    
+    if ( (suppress.legend == FALSE) & !is.null(Annot) ) {
+		#par(xpd = T, mar = par()$mar * c(1,1,1,1.1))
+        #legend(legend.pos, legend = Annot, fill = Pal, cex = 0.5, bty = "n", inset=c(-0.1,0))
+        legend(legend.pos, legend = Annot, fill = Pal, cex = 0.5, bty = "n")
+    }    
+}
+
+```
+
+```{r Show cell types associated with disease}
+transparency.attr = log(disease.score + 0.0001*rnorm(length(disease.score)))
+# trans.fact = 2
+# trans.z.threshold = -1
+
+        z = (transparency.attr - median(transparency.attr))/mad(transparency.attr)
+        beta = 1/(1 + exp(-trans.fact * (z - trans.z.threshold)))
+        beta[z > trans.z.threshold] = 1
+        beta = beta^trans.fact
+
+  plot(density(z))
+  
+plot.ACTIONet(ACTIONet.out, labels = ACTIONet.out$annotations$Cell.Types$Labels, transparency.attr = disease.score, trans.z.threshold = 0.5, trans.fact = 3)
 ```
 
 ## Save SCE and ACTIONet For Each Cell Type

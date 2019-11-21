@@ -6,6 +6,14 @@ library(dplyr)
 cell.type = "DataMatrices"
 clusts <- readRDS(paste0("data/",cell.type,"/clusters.rds"))
 df <- readRDS(paste0("data/",cell.type,"/top_gene_counts.rds"))
+setwd("/home/samsledje/Pseudotemporal-GRNs")
+
+require(bnlearn)
+require(dplyr)
+
+cell.type = "Mic"
+clusts <- readRDS(paste0("processed_data/",cell.type,"/clusters.rds"))
+df <- readRDS(paste0("processed_data/",cell.type,"/top_gene_counts.rds"))
 K.clusters = 4
 clusts$ScoreClusts = as.numeric(clusts$DiseaseRange)
 

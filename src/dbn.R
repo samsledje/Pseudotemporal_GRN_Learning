@@ -7,6 +7,9 @@ cell.type = "Mic"
 clusts <- readRDS(paste0("processed_data/",cell.type,"/clusters.rds"))
 df <- readRDS(paste0("processed_data/",cell.type,"/top_gene_counts.rds"))
 K.clusters = 4
+N.genes = 25
+
+df <- df[,1:N.genes]
 clusts$ScoreClusts = as.numeric(clusts$DiseaseRange)
 
 layers = list()

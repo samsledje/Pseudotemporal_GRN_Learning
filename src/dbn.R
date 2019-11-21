@@ -50,8 +50,8 @@ for (i in (1:length(files))){
 }
 
 # many different methods available for network learning
-network <- pc.stable(bndf,blacklist = bl)
-network <- gs(bndf, blacklist = bl)
+#network <- pc.stable(bndf,blacklist = bl)
+#network <- gs(bndf, blacklist = bl)
 network <- iamb(bndf, blacklist = bl)
 
 # output edges of graph

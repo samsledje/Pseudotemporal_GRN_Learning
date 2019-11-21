@@ -1,17 +1,11 @@
-setwd("/home/samsl/Pseudotemporal-GRNs")
+setwd("/home/samsledje/Pseudotemporal-GRNs")
 
-files <- c("data/Oli/noAD_Oli.rds",
-           "data/Oli/possibleAD_Oli.rds",
-           "data/Oli/probableAD_Oli.rds",
-           "data/Oli/definiteAD_Oli.rds"
-           )
-
-library(bnlearn)
-library(dplyr)
+require(bnlearn)
+require(dplyr)
 
 cell.type = "Mic"
-clusts <- readRDS(paste0("data/",cell.type,"/clusters.rds"))
-df <- readRDS(paste0("data/",cell.type,"/top_gene_counts.rds"))
+clusts <- readRDS(paste0("processed_data/",cell.type,"/clusters.rds"))
+df <- readRDS(paste0("processed_data/",cell.type,"/top_gene_counts.rds"))
 K.clusters = 4
 clusts$ScoreClusts = as.numeric(clusts$DiseaseRange)
 

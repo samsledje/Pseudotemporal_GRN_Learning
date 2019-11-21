@@ -4,8 +4,8 @@ require(bnlearn)
 require(dplyr)
 
 cell.type = "Mic"
-clusts <- readRDS(paste0("processed_data/",cell.type,"/clusters.rds"))
-df <- readRDS(paste0("processed_data/",cell.type,"/top_gene_counts.rds"))
+clusts <- readRDS(paste0("data/",cell.type,"/clusters.rds"))
+df <- as.data.frame(readRDS(paste0("data/",cell.type,"/top_gene_counts.rds")))
 K.clusters = 4
 N.genes = 25
 
@@ -13,29 +13,24 @@ df <- df[,1:N.genes]
 clusts$ScoreClusts = as.numeric(clusts$DiseaseRange)
 
 layers = list()
-names(layers) <- seq(K.clusters)
 for (i in seq(K.clusters)) {
-  layers[[i]] <- t(df[clusts$ScoreClusts == i,])
-  rownames(layers[[i]]) <- paste0(rownames(layers[[i]]),"_t",i)
+  layers[[i]] <- df[clusts$ScoreClusts == i,]
+  colnames(layers[[i]]) <- paste0(colnames(layers[[i]]),"_t",i)
 }
 
-mat_to_df <- function(matrix,time){
-  # matrix should have genes as rows, cells as columns
-  transposed <- t(matrix)
-  rownames(transposed) <- c()
-  rawdf <- as.data.frame(transposed)
+# Rows = cells, Columns = genes
+
+simulate.Observations <- function(matrix){
+  rownames(matrix) <- c()
+  rawdf <- as.data.frame(matrix)
   rawdf[] <- lapply(rawdf, factor)
   
-  # remove duplicate columns
-  df <- rawdf[, !duplicated(colnames(rawdf), fromLast = TRUE)] 
-  
   # network learning requires > 1 possible value for each var
-  df <- select_if(df,function(x) return(nlevels(x)>1))
+  df <- select_if(rawdf,function(x) return(nlevels(x)>1))
   
   # learn from gene expression at each time step to generate data
   network <- hc(df)
   simdf <- rbn(network, data = df, 10000)
-  colnames(simdf) <- paste(colnames(simdf), time, sep = "_")
   return(simdf)
 }
 
@@ -43,9 +38,10 @@ bl <- data.frame()
 bndf <- NULL
 prevcols <- c()
 
-for (i in (1:length(files))){
-  matrix <- readRDS(files[i])
-  newdf <- mat_to_df(matrix,paste("t",i,sep=""))
+for (i in (1:K.clusters)){
+  matrix <- layers[[i]]
+  newdf <- simulate.Observations(matrix)
+  
   # only allow edges to future time points
   bl <- rbind(bl,
               expand.grid(colnames(newdf),prevcols),
@@ -67,4 +63,8 @@ network <- iamb(bndf, blacklist = bl)
 # output edges of graph
 network[["arcs"]]
 plot(network)
-graphviz.plot(network,groups=list(t1=rownames(t1),t2=rownames(t2),t3=rownames(t3)))
+groups <- list()
+for (i in seq(K.clusters)) {
+  groups[[i]] <- colnames(layers[[i]])
+}
+graphviz.plot(network,groups=groups)

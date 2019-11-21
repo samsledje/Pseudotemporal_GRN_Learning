@@ -15,14 +15,12 @@ df <- readRDS(paste0("data/",cell.type,"/top_gene_counts.rds"))
 K.clusters = 4
 clusts$ScoreClusts = as.numeric(clusts$DiseaseRange)
 
-t1 = t(df[clusts$ScoreClusts == 1,])
-rownames(t1) <- paste0(rownames(t1),"_t1")
-t2 = t(df[clusts$ScoreClusts == 2,])
-rownames(t2) <- paste0(rownames(t2),"_t2")
-t3 = t(df[clusts$ScoreClusts == 3,])
-rownames(t3) <- paste0(rownames(t3),"_t3")
-t4 = t(df[clusts$ScoreClusts == 4,])
-rownames(t4) <- paste0(rownames(t4),"_t4")
+layers = list()
+names(layers) <- seq(K.clusters)
+for (i in seq(K.clusters)) {
+  layers[[i]] <- t(df[clusts$ScoreClusts == i,])
+  rownames(layers[[i]]) <- paste0(rownames(layers[[i]]),"_t",i)
+}
 
 mat_to_df <- function(matrix,time){
   # matrix should have genes as rows, cells as columns

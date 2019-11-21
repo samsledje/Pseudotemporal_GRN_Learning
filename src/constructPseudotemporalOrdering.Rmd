@@ -135,6 +135,7 @@ plot.ACTIONet(ACTIONet.out, labels=paste0(cell.type,".enrichment.labels"))
 
 # Label cells based on disease score
 ```{r}
+png(paste0("img/",cell.type,"_archetype_cell_labels.png"))
 plot.ACTIONet(ACTIONet.out, ACTIONet.out$unification.out$assignments.core)
 plot.ACTIONet.3D(ACTIONet.out, ACTIONet.out$unification.out$assignments.core)
 ```
@@ -149,7 +150,9 @@ ggplot(disc, aes(x=raw.score)) +
  geom_histogram(aes(y=..density..), colour="black", fill="white",binwidth = 1/nbins, boundary = 0, closed = "left")+
  geom_density(alpha=.2, fill="#FF6666") +
 geom_rug(aes(y = 0), position = position_jitter(height = 0)) +
-  coord_cartesian(xlim=c(0, 1))
+  coord_cartesian(xlim=c(0, 1)) +
+  ggtitle("Density Histogram of Disease Score") +xlab("Disease Score")
+ggsave(paste0("img/",cell.type,"_density_hist.png"))
 ```
 
 ```{r}
@@ -163,13 +166,16 @@ K.centers = nbins
 km <- kmeans(df, K.centers)
 pc <- prcomp(t(df))
 plot(pc$rotation[,1],disease.score, col=km$cluster, xlab="PC1")
+#png(paste0("img/",cell.type,"_disease_pc1.png"))
 plot(pc$rotation[,1],disease.score, col=disc$disease.score, xlab="PC1")
 autoplot(km, data=df)
 
 clusts <- as.data.frame(list("CellNames" = colnames(sce),
                              "KMeans" = km$cluster,
                              "DiseaseScore" = disease.score,
-                             "DiseaseRange" = disc$disease.score))
+                             "DiseaseRange" = disc$disease.score,
+                             "ArchetypeCluster" = ACTIONet.out$unification.out$assignments.core
+                             ))
 
 saveRDS(df,paste0("data/",cell.type,"/top_gene_counts.rds"))
 saveRDS(clusts,paste0("data/",cell.type,"/clusters.rds"))

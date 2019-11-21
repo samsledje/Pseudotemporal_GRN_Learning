@@ -9,18 +9,20 @@ files <- c("data/Oli/noAD_Oli.rds",
 library(bnlearn)
 library(dplyr)
 
+cell.type = "Mic"
 clusts <- readRDS(paste0("data/",cell.type,"/clusters.rds"))
 df <- readRDS(paste0("data/",cell.type,"/top_gene_counts.rds"))
-cell.type = "Mic"
-K.clusters = 3
+K.clusters = 4
+clusts$ScoreClusts = as.numeric(clusts$DiseaseRange)
 
-t1 = t(df[clusts$Cluster == 1,])
+t1 = t(df[clusts$ScoreClusts == 1,])
 rownames(t1) <- paste0(rownames(t1),"_t1")
-t2 = t(df[clusts$Cluster == 2,])
+t2 = t(df[clusts$ScoreClusts == 2,])
 rownames(t2) <- paste0(rownames(t2),"_t2")
-t3 = t(df[clusts$Cluster == 3,])
+t3 = t(df[clusts$ScoreClusts == 3,])
 rownames(t3) <- paste0(rownames(t3),"_t3")
-
+t4 = t(df[clusts$ScoreClusts == 4,])
+rownames(t4) <- paste0(rownames(t4),"_t4")
 
 mat_to_df <- function(matrix,time){
   # matrix should have genes as rows, cells as columns
@@ -69,4 +71,5 @@ network <- iamb(bndf, blacklist = bl)
 
 # output edges of graph
 network[["arcs"]]
+plot(network)
 graphviz.plot(network,groups=list(t1=rownames(t1),t2=rownames(t2),t3=rownames(t3)))

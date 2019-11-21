@@ -32,7 +32,7 @@ Choose from cell types:
   - Oligodendrocyte Progenitor Cells: "OPC"
 ```{r "Load Data"}
 # Select cell type from list
-cell.type = "Oli"
+cell.type = "Mic"
 sce.file.name <- paste("/home/samsl/Pseudotemporal-GRNs/data/",cell.type,"/",cell.type,"_sce.rds",sep="")
 ACTIONet.file.name <- paste("/home/samsl/Pseudotemporal-GRNs/data/",cell.type,"/",cell.type,"_ACTIONet.rds",sep="")
 sce <- readRDS(sce.file.name)
@@ -60,6 +60,7 @@ ACTIONet.out <- add.cell.annotations(ACTIONet.out, indicators[[selected.ind]], a
 plot.ACTIONet(ACTIONet.out, labels = ACTIONet.out$annotations[[selected.ind]]$Labels)
 
 # Identify disease progression enriched archetypes
+annot.out <- annotate.archetypes.using.labels(ACTIONet.out, sce$grade, core = TRUE)
 annot.out <- annotate.archetypes.using.labels(ACTIONet.out, indicators[[selected.ind]], core = TRUE)
 png(paste("img/",cell.type,"_cell_state_",selected.ind,"_enrichment.png",sep=""))
 Heatmap(t(annot.out$Enrichment), cluster_rows = FALSE, cluster_columns = FALSE, name='Enrichment', column_title='Cell State', column_title_side='bottom')
@@ -109,7 +110,7 @@ correlated.state <- listMode(c(braak.vote, cerad.vote, cogdx.vote, disease.vote,
 disease.score <- ACTIONet.out$unification.out$H.core[correlated.state,]
 core.significance <- ACTIONet.out$unification.out$DE.core@assays[["significance"]]
 associated.genes <- rownames(core.significance)[order(core.significance[,correlated.state], decreasing=TRUE)]
-#png(paste("img/",cell.type,"_archetype_disease_score_gradient.png",sep=""))
+png(paste("img/",cell.type,"_archetype_disease_score_gradient.png",sep=""))
 plot.ACTIONet.gradient(ACTIONet.out,disease.score)
 ```
 
@@ -162,11 +163,11 @@ K.centers = nbins
 km <- kmeans(df, K.centers)
 pc <- prcomp(t(df))
 plot(pc$rotation[,1],disease.score, col=km$cluster, xlab="PC1")
-plot(pc$rotation[,1],disease.score, col=d$disease.score, xlab="PC1")
+plot(pc$rotation[,1],disease.score, col=disc$disease.score, xlab="PC1")
 autoplot(km, data=df)
 
 clusts <- as.data.frame(list("CellNames" = colnames(sce),
-                             "Cluster" = km$cluster,
+                             "KMeans" = km$cluster,
                              "DiseaseScore" = disease.score,
                              "DiseaseRange" = disc$disease.score))
 

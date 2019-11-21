@@ -56,7 +56,7 @@ rowData(sce)$hgnc_symbol <- rownames(sce)
 Normalize to log counts and perform batch correction with Harmony.
 ```{r "Reduce and Batch Correct"}
 # Reduce and Batch Correct
-sce <- reduce.and.batch.correct.sce.Harmony(sce, batch.vec = colData(sce)$Subject, reduced_dim = 35)
+sce <- reduce.and.batch.correct.sce.Harmony(sce, batch.vec = colData(sce)$batch, reduced_dim = 35)
 ```
 
 Add gene metadata from biomart, including  ensembl symbol and position on the chromosome.
@@ -74,7 +74,7 @@ sce <- getBMFeatureAnnos(sce, filters="hgnc_symbol",
 ### Load from processed SCE Object
 ```{r "Load from SCE"}
 # SCE file name
-sce.file.name <- "~/Pseudotemporal-GRNs/data/sce.rds"
+sce.file.name <- "~/Pseudotemporal-GRNs/data/Processed_HD_data/human_hd_sce.rds"
 
 sce <- readRDS(sce.file.name)
 ```

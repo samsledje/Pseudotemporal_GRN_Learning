@@ -14,7 +14,12 @@ knitr::opts_chunk$set(echo = TRUE)
 require(ACTIONet)
 require(SingleCellExperiment)
 require(Seurat)
-require(monocle)
+#require(monocle3)
+require(ComplexHeatmap)
+require(factoextra)
+require(ggfortify)
+require(bnlearn)
+require(UsingR)
 ```
 
 ### Load SCE and ACTIONet for a specific cell type
@@ -27,15 +32,15 @@ Choose from cell types:
   - Oligodendrocyte Progenitor Cells: "OPC"
 ```{r "Load Data"}
 # Select cell type from list
-cell.type = "Oli"
-sce.file.name <- paste("/home/samsl/Pseudotemporal-GRNs/data/",cell.type,"_sce.rds",sep="")
-ACTIONet.file.name <- paste("/home/samsl/Pseudotemporal-GRNs/data/",cell.type,"_ACTIONet.rds",sep="")
+cell.type = "Mic"
+sce.file.name <- paste("/home/samsl/Pseudotemporal-GRNs/data/",cell.type,"/",cell.type,"_sce.rds",sep="")
+ACTIONet.file.name <- paste("/home/samsl/Pseudotemporal-GRNs/data/",cell.type,"/",cell.type,"_ACTIONet.rds",sep="")
 sce <- readRDS(sce.file.name)
 ACTIONet.out <- readRDS(ACTIONet.file.name)
 ```
 
-# Identify Ordering Genes
-To produce a pseudotemporal ordering of cell states, we have to identify genes which are differentially up or downregulated throughout disease progression. We can use `braaksc`, `ceradsc`, or `cogdx` as clinical indicators of disease progression. For now, we will use `ceradsc`.
+# Identify Cell States Correlated with Disease
+To produce a pseudotemporal ordering of cell states, we identify cell states which are correlated with disease. We can use `braaksc`, `ceradsc`, or `cogdx` as clinical indicators of disease progression. For now, we will use `ceradsc`. We plot enrichment for clinical phenotype across cell states to identify the maximally enriched cell state.
 ```{r "Find Cluster Markers"}
 # Import Clinical Data from ROSMAP
 clinical <- read.table("/home/samsl/Pseudotemporal-GRNs/data/Processed_10x_AD_data/ROSMAP_Clinical_2019-05_v3.csv", header = TRUE, sep=",")
@@ -43,50 +48,156 @@ clinical <- read.table("/home/samsl/Pseudotemporal-GRNs/data/Processed_10x_AD_da
 cogdx.ind <- factor(unlist(lapply(colData(sce)$projid, function (x) { clinical[which(clinical$projid == x),"cogdx"] })))
 braak.ind <- factor(unlist(lapply(colData(sce)$projid, function (x) { clinical[which(clinical$projid == x),"braaksc"] })))
 cerad.ind <- factor(unlist(lapply(colData(sce)$projid, function (x) { clinical[which(clinical$projid == x),"ceradsc"] })))
+indicators = list("braak" = braak.ind, "cogdx" = cogdx.ind, "cerad" = cerad.ind)
+
+# Select Indicator to Use
+selected.ind = "braak"
 
 # Annotate ACTIONet with each clinical indicator
-ACTIONet.out <- add.cell.annotations(ACTIONet.out, cogdx.ind, annotation.name="cogdx")
-ACTIONet.out <- add.cell.annotations(ACTIONet.out, braak.ind, annotation.name="braak")
-ACTIONet.out <- add.cell.annotations(ACTIONet.out, cerad.ind, annotation.name="ceradsc")
+ACTIONet.out <- add.cell.annotations(ACTIONet.out, indicators[[selected.ind]], annotation.name=selected.ind)
 
-# Visualize how clinical indicator separates the cells in the ACTIONet
-plot.ACTIONet(ACTIONet.out, labels = cerad.ind)
+# Visualize  the clinical indicators in the ACTIONet layout
+plot.ACTIONet(ACTIONet.out, labels = ACTIONet.out$annotations[[selected.ind]]$Labels)
 
-# Identify markers of disease progression
-markers <- find.cluster.markers(sce, cerad.ind)
-marker.names <- lapply(markers, rownames)
-top.N.genes = 25
-top.markers <- lapply(marker.names, function (x) { x[1:top.N.genes]})
-
-# Visualize how marker sets overlap
-combMat <- make_comb_mat(top.markers, mode='intersect')
-UpSet(combMat)
-
-# Visualize how each marker separates the cells in the ACTIONet (will take a long time and generate many plots with large N genes)
-visualize.markers(ACTIONet.out, sce, top.markers)
+# Identify disease progression enriched archetypes
+annot.out <- annotate.archetypes.using.labels(ACTIONet.out, sce$grade, core = TRUE)
+annot.out <- annotate.archetypes.using.labels(ACTIONet.out, indicators[[selected.ind]], core = TRUE)
+png(paste("img/",cell.type,"_cell_state_",selected.ind,"_enrichment.png",sep=""))
+Heatmap(t(annot.out$Enrichment), cluster_rows = FALSE, cluster_columns = FALSE, name='Enrichment', column_title='Cell State', column_title_side='bottom')
 ```
 
-# Cluster into Archetypes
-Use ACTIONet to annotate archetype cells with the markers found for disease progression.
-```{r "Archetypal Clustering"}
+# Biological Pathway Enrichment
+We can verify the correlation of this cell state with progression by searching for enrichment with GO pathways.
+```{r "Pathway Enrichment"}
+data("nanoStringDB_human")
+ADmarkers <- nanoStringDB_human$AD
+enrichment.out <- t(geneset.enrichment.archetype(ACTIONet.out, ADmarkers))
+png(paste0("img/",cell.type,"_cell_state_disease_enrichment.png"))
+Heatmap(t(enrichment.out), cluster_columns=FALSE, name='Enrichment', column_title = 'Cell State', column_title_side = 'bottom')
+```
 
-# Cluster cells based on markers for cerad level
-ACTIONet.out <- annotate.cells.from.archetypes.using.markers(ACTIONet.out,
-                                                             top.markers,
-                                                             annotation.name="Progression")
+# Calculate Disease Score
+This cell state can then be used to assign scores for each cell.
+```{r "Disease Score"}
+# Indicators vote for most correlated state
+MAX.BRAAK.STAGE <- 6
+braak.ind.enrich <- annotate.archetypes.using.labels(ACTIONet.out, indicators[["braak"]], core = TRUE)$Enrichment
+braak.vote <- which.max(braak.ind.enrich[,MAX.BRAAK.STAGE])
 
-# Visualize clusters
-plot.ACTIONet(ACTIONet.out, labels=ACTIONet.out$annotations$Progression$Labels, transparency.attr = ACTIONet.out$annotations$Progression$Labels.confidence)
+MAX.CERAD.STAGE <- 1
+cerad.ind.enrich <- annotate.archetypes.using.labels(ACTIONet.out, indicators[["cerad"]], core = TRUE)$Enrichment
+cerad.vote <- which.max(cerad.ind.enrich[,MAX.CERAD.STAGE])
+
+MAX.COGDX.STAGE <- 5
+cogdx.ind.enrich <- annotate.archetypes.using.labels(ACTIONet.out, indicators[["cogdx"]], core = TRUE)$Enrichment
+cogdx.vote <- which.max(cogdx.ind.enrich[,MAX.COGDX.STAGE])
+
+DISEASE.ENRICH.COL <- 1
+disease.enrich <- t(geneset.enrichment.archetype(ACTIONet.out, ADmarkers))
+disease.vote <- which.max(disease.enrich[,DISEASE.ENRICH.COL])
+
+ACTIVE.MIC.COL <- 2
+active.mic.vote <-  which.max(disease.enrich[,ACTIVE.MIC.COL])
+
+
+listMode <- function(v) {
+   uniqv <- unique(v)
+   uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
+correlated.state <- listMode(c(braak.vote, cerad.vote, cogdx.vote, disease.vote, active.mic.vote))
+
+disease.score <- ACTIONet.out$unification.out$H.core[correlated.state,]
+core.significance <- ACTIONet.out$unification.out$DE.core@assays[["significance"]]
+associated.genes <- rownames(core.significance)[order(core.significance[,correlated.state], decreasing=TRUE)]
+png(paste("img/",cell.type,"_archetype_disease_score_gradient.png",sep=""))
+plot.ACTIONet.gradient(ACTIONet.out,disease.score)
+```
+
+# View Biological Pathways enriched in the correlated archetype
+We can see which pathways are enriched in the correlated state and other states.
+```{r}
+data("gProfilerDB_human")
+gpADmarkers <- gProfilerDB_human$SYMBOL$`GO:BP`
+gp.enrichment.out <- geneset.enrichment.archetype(ACTIONet.out, gpADmarkers)
+gp.top <- gp.enrichment.out[order(gp.enrichment.out[,correlated.state], decreasing = TRUE),][1:20,]
+png(paste0("img/",cell.type,"_cell_state_pathway_enrichment.png"))
+Heatmap(gp.top, cluster_columns=FALSE, name='Enrichment', column_title='Cell State', column_title_side='bottom')
+```
+
+# Labels from archetypes and progression
+```{r "Label cells based on enrichment for disease progression" }
+ACTIONet.out <- annotate.cells.from.archetype.enrichment(ACTIONet.out,t(annot.out$Enrichment),core = TRUE,annotation.name = paste0(cell.type,".enrichment.labels"))
+
+png(paste0("/home/samsl/Pseudotemporal-GRNs/img/",cell.type,"_cell_labels_",selected.ind,"_enrichment_labels.png"))
+plot.ACTIONet(ACTIONet.out, labels=paste0(cell.type,".enrichment.labels"))
+```
+
+# Label cells based on disease score
+```{r}
+png(paste0("img/",cell.type,"_archetype_cell_labels.png"))
+plot.ACTIONet(ACTIONet.out, ACTIONet.out$unification.out$assignments.core)
+plot.ACTIONet.3D(ACTIONet.out, ACTIONet.out$unification.out$assignments.core)
+```
+
+```{r}
+nbins = 4
+
+disc = discretize(as.data.frame(disease.score),"interval",breaks=nbins,ordered=TRUE)
+disc$raw.score = disease.score
+
+ggplot(disc, aes(x=raw.score)) + 
+ geom_histogram(aes(y=..density..), colour="black", fill="white",binwidth = 1/nbins, boundary = 0, closed = "left")+
+ geom_density(alpha=.2, fill="#FF6666") +
+geom_rug(aes(y = 0), position = position_jitter(height = 0)) +
+  coord_cartesian(xlim=c(0, 1)) +
+  ggtitle("Density Histogram of Disease Score") +xlab("Disease Score")
+ggsave(paste0("img/",cell.type,"_density_hist.png"))
+```
+
+```{r}
+#Cluster cells by disease score
+M.genes = 100
+top.genes = associated.genes[1:M.genes]
+top.sce <- sce[rownames(sce) %in% top.genes]
+df <- as.data.frame(as.matrix(t(counts(top.sce))))
+
+K.centers = nbins
+km <- kmeans(df, K.centers)
+pc <- prcomp(t(df))
+plot(pc$rotation[,1],disease.score, col=km$cluster, xlab="PC1")
+#png(paste0("img/",cell.type,"_disease_pc1.png"))
+plot(pc$rotation[,1],disease.score, col=disc$disease.score, xlab="PC1")
+autoplot(km, data=df)
+
+clusts <- as.data.frame(list("CellNames" = colnames(sce),
+                             "KMeans" = km$cluster,
+                             "DiseaseScore" = disease.score,
+                             "DiseaseRange" = disc$disease.score,
+                             "ArchetypeCluster" = ACTIONet.out$unification.out$assignments.core
+                             ))
+
+saveRDS(df,paste0("data/",cell.type,"/top_gene_counts.rds"))
+saveRDS(clusts,paste0("data/",cell.type,"/clusters.rds"))
 ```
 
 # Monocle
 ```{r Monocle}
-
 ```
 
 # Subset Cells
-Get only the cells from the subcluster that you want, using only the marker genes. Do this for each subcluster to get the layers.
+Get only the cells from the subcluster that you want, using the labels. Do this for each subcluster to get the layers.
 ```{r Subset}
-subSce <- sce[unlist(top.markers),which(ACTIONet.out$annotations$ceradsc$Labels == 1)]
-subCounts <- counts(subSce)
+ACTIONet.out <- cluster.ACTIONet.using.decomposition(ACTIONet.out, annotation.name="CellStateClusters")
+plot.ACTIONet(ACTIONet.out, labels = ACTIONet.out$annotations$CellStateClusters$Labels, transparency.attr = ACTIONet.out$annotations$CellStateClusters$Labels.confidence)
+
+noAD <- as.matrix(counts(sce[unlist(top.markers),which(ACTIONet.out$annotations$ceradsc$Labels == 4)]))
+possibleAD <- as.matrix(counts(sce[unlist(top.markers),which(ACTIONet.out$annotations$ceradsc$Labels == 3)]))
+probableAD <- as.matrix(counts(sce[unlist(top.markers),which(ACTIONet.out$annotations$ceradsc$Labels == 2)]))
+definiteAD <- as.matrix(counts(sce[unlist(top.markers),which(ACTIONet.out$annotations$ceradsc$Labels == 1)]))
+
+saveRDS(noAD, paste("data/noAD_",cell.type,".rds",sep=""))
+saveRDS(possibleAD, paste("data/possibleAD_",cell.type,".rds",sep=""))
+saveRDS(probableAD, paste("data/probableAD_",cell.type,".rds",sep=""))
+saveRDS(definiteAD, paste("data/definiteAD_",cell.type,".rds",sep=""))
 ```

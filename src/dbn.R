@@ -1,11 +1,13 @@
-setwd("/home/samsledje/Pseudotemporal-GRNs")
+#setwd("/home/samsledje/Pseudotemporal-GRNs")
+setwd("D:/Drive/PhD/GitHub/Pseudotemporal_GRN_Learning")
 
 require(bnlearn)
 require(dplyr)
+require(Rgraphviz)
 
 cell.type = "Mic"
-clusts <- readRDS(paste0("data/",cell.type,"/clusters.rds"))
-df <- as.data.frame(readRDS(paste0("data/",cell.type,"/top_gene_counts.rds")))
+clusts <- readRDS(paste0("processed-data/",cell.type,"/clusters.rds"))
+df <- as.data.frame(readRDS(paste0("processed-data/",cell.type,"/top_gene_counts.rds")))
 K.clusters = 4
 N.genes = 25
 
@@ -35,6 +37,7 @@ simulate.Observations <- function(matrix){
 }
 
 bl <- data.frame()
+wl <- data.frame()
 bndf <- NULL
 prevcols <- c()
 
@@ -46,6 +49,8 @@ for (i in (1:K.clusters)){
   bl <- rbind(bl,
               expand.grid(colnames(newdf),prevcols),
               expand.grid(colnames(newdf),colnames(newdf)))
+#  wl <- rbind(wl,
+#              expand.grid(prevcols, colnames(newdf)))
   prevcols <- c(prevcols,colnames(newdf))
   if (is.null(bndf)){
     bndf <- newdf
@@ -54,6 +59,8 @@ for (i in (1:K.clusters)){
     bndf <- cbind(bndf,newdf)
   }
 }
+
+colnames(wl) <- c("from","to")
 
 # many different methods available for network learning
 #network <- pc.stable(bndf,blacklist = bl)

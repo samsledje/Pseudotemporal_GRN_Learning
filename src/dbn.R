@@ -120,6 +120,8 @@ create_df <- function(){
 # pc_network <- pc.stable(bndf, blacklist = bl, alpha = .05)[["arcs"]]
 # gs_network <- gs(bndf, blacklist = bl, alpha = .05)[["arcs"]]
 network <- iamb(bndf, blacklist = bl,alpha = .05)
+
+# -------------------------- #
 interactions <- data.frame()
 
 for (i in 1:20){
@@ -131,6 +133,7 @@ for (i in 1:20){
 }
 
 interactions[duplicated(interactions),]
+# -------------------------- #
 
 # output edges of graph
 groups <- list()

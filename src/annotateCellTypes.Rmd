@@ -307,7 +307,7 @@ plot.ACTIONet(ACTIONet.out, labels = ACTIONet.out$annotations$Cell.Types$Labels,
 ## Save SCE and ACTIONet For Each Cell Type
 We want to re-run ACTIONet for each subset of cells to learn archetypes within a cell type
 ```{r "Create ACTIONet for each cell type", result='hide'}
-cell.type.file.dir = "data"
+cell.type.file.dir = "raw-data"
 
 for (cell.type in names(markers)) {
   print(paste("Running ACTIONet for",cell.type,"cells..."))

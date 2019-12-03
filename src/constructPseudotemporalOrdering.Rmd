@@ -19,7 +19,6 @@ require(ComplexHeatmap)
 require(factoextra)
 require(ggfortify)
 require(xlsx)
-#require(bnlearn)
 require(UsingR)
 ```
 

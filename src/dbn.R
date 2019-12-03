@@ -19,6 +19,7 @@ require(Rgraphviz)
 cell.type = "Mic"
 clusts <- readRDS(paste0("processed-data/",cell.type,"/clusters.rds"))
 df <- as.data.frame(readRDS(paste0("processed-data/",cell.type,"/top_gene_counts.rds")))
+
 K.clusters = 4
 N.genes = 25
 
@@ -50,18 +51,19 @@ simulate.Observations <- function(matrix){
 bl <- data.frame()
 wl <- data.frame()
 bndf <- NULL
+prevdf <- NULL
 prevcols <- c()
 
 for (i in (1:K.clusters)){
   matrix <- layers[[i]]
-  newdf <- sim_timestep(matrix)
   newdf <- simulate.Observations(matrix)
   # only allow edges to future time points
   bl <- rbind(bl,
               expand.grid(colnames(newdf),prevcols),
               expand.grid(colnames(newdf),colnames(newdf)))
-#  wl <- rbind(wl,
-#              expand.grid(prevcols, colnames(newdf)))
+  wl <- rbind(wl,
+              expand.grid(colnames(prevdf),colnames(newdf)))
+
   prevcols <- c(prevcols,colnames(newdf))
   if (is.null(bndf)){
     bndf <- newdf
@@ -69,12 +71,13 @@ for (i in (1:K.clusters)){
   else{
     bndf <- cbind(bndf,newdf)
   }
+  prevdf <- newdf
 }
 
 # many different methods available for network learning
 # network <- pc.stable(bndf,blacklist = bl)
 # network <- gs(bndf, blacklist = bl)
-network <- fast.iamb(bndf, blacklist = bl)
+network <- fast.iamb(bndf, blacklist = bl, whitelist = wl)
 
 # output edges of graph
 network[["arcs"]]
@@ -84,3 +87,4 @@ for (i in seq(K.clusters)) {
   groups[[i]] <- colnames(layers[[i]])
 }
 graphviz.plot(network,groups=groups)
+arc.strength(network,bndf)

@@ -65,7 +65,7 @@ for (i in (1:K.clusters)){
   prevdf <- newdf
 }
 
-network <- fast.iamb(bndf, blacklist = bl,alpha = .05)
+network <- gs(bndf, blacklist = bl,alpha = .05)
 network[["arcs"]]
 arc.strength(network,bndf)
 

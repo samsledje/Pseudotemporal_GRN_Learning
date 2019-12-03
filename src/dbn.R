@@ -6,40 +6,28 @@ library(dplyr)
 cell.type = "DataMatrices"
 clusts <- readRDS(paste0("data/",cell.type,"/clusters.rds"))
 df <- readRDS(paste0("data/",cell.type,"/top_gene_counts.rds"))
-setwd("/home/samsledje/Pseudotemporal-GRNs")
 
-require(bnlearn)
-require(dplyr)
-
-cell.type = "Mic"
-clusts <- readRDS(paste0("processed_data/",cell.type,"/clusters.rds"))
-df <- readRDS(paste0("processed_data/",cell.type,"/top_gene_counts.rds"))
 K.clusters = 4
+df <- df[,1:25]
 clusts$ScoreClusts = as.numeric(clusts$DiseaseRange)
 
 layers = list()
 for (i in seq(K.clusters)) {
-  layers[[i]] <- t(df[clusts$ScoreClusts == i,])
-  rownames(layers[[i]]) <- paste0(rownames(layers[[i]]),"_t",i)
+  layers[[i]] <- df[clusts$ScoreClusts == i,]
+  colnames(layers[[i]]) <- paste0(colnames(layers[[i]]),"_t",i)
 }
 
-mat_to_df <- function(matrix,time){
-  # matrix should have genes as rows, cells as columns
-  transposed <- t(matrix)
-  rownames(transposed) <- c()
-  rawdf <- as.data.frame(transposed)
+sim_timestep <- function(matrix){
+  rownames(matrix) <- c()
+  rawdf <- as.data.frame(matrix)
   rawdf[] <- lapply(rawdf, factor)
   
-  # remove duplicate columns
-  df <- rawdf[, !duplicated(colnames(rawdf), fromLast = TRUE)] 
-  
   # network learning requires > 1 possible value for each var
-  df <- select_if(df,function(x) return(nlevels(x)>1))
+  df <- select_if(rawdf,function(x) return(nlevels(x)>1))
   
   # learn from gene expression at each time step to generate data
   network <- hc(df)
   simdf <- rbn(network, data = df, 10000)
-  colnames(simdf) <- paste(colnames(simdf), time, sep = "_")
   return(simdf)
 }
 
@@ -47,9 +35,9 @@ bl <- data.frame()
 bndf <- NULL
 prevcols <- c()
 
-for (i in (1:length(files))){
-  matrix <- readRDS(files[i])
-  newdf <- mat_to_df(matrix,paste("t",i,sep=""))
+for (i in (1:K.clusters)){
+  matrix <- layers[[i]]
+  newdf <- sim_timestep(matrix)
   # only allow edges to future time points
   bl <- rbind(bl,
               expand.grid(colnames(newdf),prevcols),
@@ -63,10 +51,12 @@ for (i in (1:length(files))){
   }
 }
 
+# whitelist edges between time steps if weighted 
+
 # many different methods available for network learning
-#network <- pc.stable(bndf,blacklist = bl)
-#network <- gs(bndf, blacklist = bl)
-network <- iamb(bndf, blacklist = bl)
+# network <- pc.stable(bndf,blacklist = bl)
+# network <- gs(bndf, blacklist = bl)
+network <- fast.iamb(bndf, blacklist = bl)
 
 # output edges of graph
 network[["arcs"]]

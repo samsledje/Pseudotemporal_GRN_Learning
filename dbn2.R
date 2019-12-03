@@ -11,7 +11,7 @@ df <- as.data.frame(readRDS(paste0("processed-data/",cell.type,"/top_gene_counts
 #write.table(pseudotime.sorted, file="loremIpsum.csv", sep=",")
 
 K.clusters = 4
-N.genes = 100
+N.genes = 139
 
 df <- df[,1:N.genes]
 clusts$ScoreClusts = as.numeric(clusts$DiseaseRange)

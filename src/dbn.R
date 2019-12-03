@@ -9,6 +9,20 @@ df <- readRDS(paste0("data/",cell.type,"/top_gene_counts.rds"))
 
 K.clusters = 4
 df <- df[,1:25]
+#setwd("/home/samsledje/Pseudotemporal-GRNs")
+#setwd("D:/Drive/PhD/GitHub/Pseudotemporal_GRN_Learning")
+
+require(bnlearn)
+require(dplyr)
+require(Rgraphviz)
+
+cell.type = "Mic"
+clusts <- readRDS(paste0("processed-data/",cell.type,"/clusters.rds"))
+df <- as.data.frame(readRDS(paste0("processed-data/",cell.type,"/top_gene_counts.rds")))
+K.clusters = 4
+N.genes = 25
+
+df <- df[,1:N.genes]
 clusts$ScoreClusts = as.numeric(clusts$DiseaseRange)
 
 layers = list()
@@ -17,7 +31,9 @@ for (i in seq(K.clusters)) {
   colnames(layers[[i]]) <- paste0(colnames(layers[[i]]),"_t",i)
 }
 
-sim_timestep <- function(matrix){
+# Rows = cells, Columns = genes
+
+simulate.Observations <- function(matrix){
   rownames(matrix) <- c()
   rawdf <- as.data.frame(matrix)
   rawdf[] <- lapply(rawdf, factor)
@@ -32,16 +48,20 @@ sim_timestep <- function(matrix){
 }
 
 bl <- data.frame()
+wl <- data.frame()
 bndf <- NULL
 prevcols <- c()
 
 for (i in (1:K.clusters)){
   matrix <- layers[[i]]
   newdf <- sim_timestep(matrix)
+  newdf <- simulate.Observations(matrix)
   # only allow edges to future time points
   bl <- rbind(bl,
               expand.grid(colnames(newdf),prevcols),
               expand.grid(colnames(newdf),colnames(newdf)))
+#  wl <- rbind(wl,
+#              expand.grid(prevcols, colnames(newdf)))
   prevcols <- c(prevcols,colnames(newdf))
   if (is.null(bndf)){
     bndf <- newdf
@@ -51,8 +71,6 @@ for (i in (1:K.clusters)){
   }
 }
 
-# whitelist edges between time steps if weighted 
-
 # many different methods available for network learning
 # network <- pc.stable(bndf,blacklist = bl)
 # network <- gs(bndf, blacklist = bl)
@@ -61,4 +79,8 @@ network <- fast.iamb(bndf, blacklist = bl)
 # output edges of graph
 network[["arcs"]]
 plot(network)
-graphviz.plot(network,groups=list(t1=rownames(t1),t2=rownames(t2),t3=rownames(t3)))
+groups <- list()
+for (i in seq(K.clusters)) {
+  groups[[i]] <- colnames(layers[[i]])
+}
+graphviz.plot(network,groups=groups)

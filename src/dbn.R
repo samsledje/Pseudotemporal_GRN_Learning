@@ -1,9 +1,12 @@
+setwd("/Users/dkaur/Documents/Pseudotemporal_GRN_Learning")
+
+#setwd("/home/samsledje/Pseudotemporal-GRNs")
 setwd("/home/samsl/Pseudotemporal-GRNs")
 #setwd("D:/Drive/PhD/GitHub/Pseudotemporal_GRN_Learning")
 
 require(bnlearn)
 require(dplyr)
-require(Rgraphviz)
+#require(Rgraphviz)
 
 read.gmt <- function(file) {
   if (!grepl("\\.gmt$", file)[1]) {
@@ -45,6 +48,8 @@ pseudotime.sorted <- t(gene.df)[,order(clusts$DiseaseScore)]
 write.csv(pseudotime.sorted, file=paste0("processed-data/",cell.type,"/GRNVBEM.csv"))
 
 # Divide cells into layers based on clusters
+N.genes = 139
+df <- df[,1:N.genes]
 clusts$ScoreClusts = as.numeric(clusts$DiseaseRange)
 K.clusters = length(unique(clusts$ScoreClusts))
 
@@ -66,40 +71,58 @@ simulate.Observations <- function(matrix){
   
   # learn from gene expression at each time step to generate data
   network <- hc(df)
-  simdf <- rbn(network, data = df, 10000)
+  simdf <- rbn(network, data = df, 1000)
   return(simdf)
 }
 
-bl <- data.frame()
-wl <- data.frame()
-bndf <- NULL
-prevcols <- c()
-
-for (i in (1:K.clusters)){
-  matrix <- layers[[i]]
-  newdf <- simulate.Observations(matrix)
+create_df <- function(){
+  bl <- data.frame()
+  bndf <- NULL
+  prevdf <- NULL
+  prevcols <- c()
   
-  # only allow edges to future time points
-  bl <- rbind(bl,
-              expand.grid(colnames(newdf),prevcols),
-              expand.grid(colnames(newdf),colnames(newdf)))
-  prevcols <- c(prevcols,colnames(newdf))
-  if (is.null(bndf)){
-    bndf <- newdf
+  for (i in (1:K.clusters)){
+    matrix <- layers[[i]]
+    newdf <- simulate.Observations(matrix)
+    # only allow edges to future time points
+    bl <- rbind(bl,
+                expand.grid(colnames(newdf),prevcols),
+                expand.grid(colnames(newdf),colnames(newdf)))
+    #wl <- rbind(wl,
+                #expand.grid(colnames(prevdf),colnames(newdf)))
+  
+    prevcols <- c(prevcols,colnames(newdf))
+    if (is.null(bndf)){
+      bndf <- newdf
+    }
+    else{
+      bndf <- cbind(bndf,newdf)
+    }
+    prevdf <- newdf
   }
-  else{
-    bndf <- cbind(bndf,newdf)
-  }
+  res <- list("df" = bndf, "bl" = bl)
+  return(res)
 }
 
 # many different methods available for network learning
-#network <- pc.stable(bndf,blacklist = bl)
-#network <- gs(bndf, blacklist = bl)
-network <- iamb(bndf, blacklist = bl)
+# network <- pc.stable(bndf,blacklist = bl)
+# pc_network <- pc.stable(bndf, blacklist = bl, alpha = .05)[["arcs"]]
+# gs_network <- gs(bndf, blacklist = bl, alpha = .05)[["arcs"]]
+interactions <- data.frame()
+
+for (i in 1:20){
+  res <- create_df()
+  bndf <- res$df
+  bl <- res$bl
+  fi_network <- fast.iamb(bndf, blacklist = bl, alpha = .22)
+  interactions <- rbind(interactions,fi_network[["arcs"]])
+}
+
+interactions[duplicated(interactions),]
 
 # output edges of graph
 network[["arcs"]]
-plot(network)
+#plot(network)
 groups <- list()
 for (i in seq(K.clusters)) {
   groups[[i]] <- names(network$nodes)[grep(paste0(".*_t",i),names(network$nodes))]

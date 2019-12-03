@@ -31,7 +31,7 @@ write.table(pseudotime.sorted, file="loremIpsum.csv", sep=",")
 
 
 K.clusters = 4
-N.genes = 100
+N.genes = 139
 
 # Load gene lists for network generation
 marker.root <- "processed-data/markers/"
@@ -55,7 +55,7 @@ pseudotime.sorted <- t(df)[,order(clusts$DiseaseScore)]
 write.csv(pseudotime.sorted, file=paste0("processed-data/",cell.type,"/GRNVBEM.csv"))
 
 # Divide cells into layers based on clusters
-N.genes = 25
+N.genes = 139
 df <- df[,1:N.genes]
 clusts$ScoreClusts = as.numeric(clusts$DiseaseRange)
 
@@ -112,20 +112,23 @@ create_df <- function(){
   return(res)
 }
 
-res <- create_df()
-bndf <- res$df
-bl <- res$bl
+
 
 # many different methods available for network learning
 # network <- pc.stable(bndf,blacklist = bl)
 # pc_network <- pc.stable(bndf, blacklist = bl, alpha = .05)[["arcs"]]
 # gs_network <- gs(bndf, blacklist = bl, alpha = .05)[["arcs"]]
-fi_network <- fast.iamb(bndf, blacklist = bl, alpha = .05)[["arcs"]]
+interactions <- data.frame()
 
-for (i in 1:10){
-  fi_network <- fast.iamb(bndf, blacklist = bl, alpha = .05)[["arcs"]]
-  
+for (i in 1:20){
+  res <- create_df()
+  bndf <- res$df
+  bl <- res$bl
+  fi_network <- fast.iamb(bndf, blacklist = bl, alpha = .22)
+  interactions <- rbind(interactions,fi_network[["arcs"]])
 }
+
+interactions[duplicated(interactions),]
 
 # output edges of graph
 network[["arcs"]]

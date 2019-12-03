@@ -36,9 +36,9 @@ Use HD Microglia:
   - "HD_mic"
 ```{r "Load Data"}
 # Select cell type from list
-cell.type = "HD_mic"
-sce.file.name <- paste("/home/samsl/Pseudotemporal-GRNs/raw-data/",cell.type,"/",cell.type,"_sce.rds",sep="")
-ACTIONet.file.name <- paste("/home/samsl/Pseudotemporal-GRNs/raw-data/",cell.type,"/",cell.type,"_ACTIONet.rds",sep="")
+cell.type = "Mic"
+sce.file.name <- paste("/home/samsl/Pseudotemporal-GRNs/processed-data/",cell.type,"/",cell.type,"_sce.rds",sep="")
+ACTIONet.file.name <- paste("/home/samsl/Pseudotemporal-GRNs/processed-data/",cell.type,"/",cell.type,"_ACTIONet.rds",sep="")
 sce <- readRDS(sce.file.name)
 ACTIONet.out <- readRDS(ACTIONet.file.name)
 ```
@@ -47,7 +47,7 @@ ACTIONet.out <- readRDS(ACTIONet.file.name)
 To produce a pseudotemporal ordering of cell states, we identify cell states which are correlated with disease. We can use `braaksc`, `ceradsc`, or `cogdx` as clinical indicators of disease progression. For now, we will use `ceradsc`. We plot enrichment for clinical phenotype across cell states to identify the maximally enriched cell state.
 ```{r "Alz Find Cluster Markers"}
 # Import Clinical Data from ROSMAP
-clinical <- read.table("/home/samsl/Pseudotemporal-GRNs/data/Processed_10x_AD_data/ROSMAP_Clinical_2019-05_v3.csv", header = TRUE, sep=",")
+clinical <- read.table("/home/samsl/Pseudotemporal-GRNs/raw-data/Processed_10x_AD_data/ROSMAP_Clinical_2019-05_v3.csv", header = TRUE, sep=",")
 
 cogdx.ind <- factor(unlist(lapply(colData(sce)$projid, function (x) { clinical[which(clinical$projid == x),"cogdx"] })))
 braak.ind <- factor(unlist(lapply(colData(sce)$projid, function (x) { clinical[which(clinical$projid == x),"braaksc"] })))
@@ -211,7 +211,7 @@ ggsave(paste0("img/",cell.type,"_density_hist.png"))
 
 ```{r}
 #Cluster cells by disease score
-M.genes = 100
+M.genes = dim(sce)[1]
 top.genes = associated.genes[1:M.genes]
 top.sce <- sce[rownames(sce) %in% top.genes]
 df <- as.data.frame(as.matrix(t(counts(top.sce))))
@@ -222,7 +222,6 @@ pc <- prcomp(t(df))
 plot(pc$rotation[,1],disease.score, col=km$cluster, xlab="PC1")
 #png(paste0("img/",cell.type,"_disease_pc1.png"))
 plot(pc$rotation[,1],disease.score, col=disc$disease.score, xlab="PC1")
-autoplot(km, data=df)
 
 clusts <- as.data.frame(list("CellNames" = colnames(sce),
                              "KMeans" = km$cluster,
@@ -233,25 +232,4 @@ clusts <- as.data.frame(list("CellNames" = colnames(sce),
 
 saveRDS(df,paste0("processed-data/",cell.type,"/top_gene_counts.rds"))
 saveRDS(clusts,paste0("processed-data/",cell.type,"/clusters.rds"))
-```
-
-# Monocle
-```{r Monocle}
-```
-
-# Subset Cells
-Get only the cells from the subcluster that you want, using the labels. Do this for each subcluster to get the layers.
-```{r Subset}
-ACTIONet.out <- cluster.ACTIONet.using.decomposition(ACTIONet.out, annotation.name="CellStateClusters")
-plot.ACTIONet(ACTIONet.out, labels = ACTIONet.out$annotations$CellStateClusters$Labels, transparency.attr = ACTIONet.out$annotations$CellStateClusters$Labels.confidence)
-
-noAD <- as.matrix(counts(sce[unlist(top.markers),which(ACTIONet.out$annotations$ceradsc$Labels == 4)]))
-possibleAD <- as.matrix(counts(sce[unlist(top.markers),which(ACTIONet.out$annotations$ceradsc$Labels == 3)]))
-probableAD <- as.matrix(counts(sce[unlist(top.markers),which(ACTIONet.out$annotations$ceradsc$Labels == 2)]))
-definiteAD <- as.matrix(counts(sce[unlist(top.markers),which(ACTIONet.out$annotations$ceradsc$Labels == 1)]))
-
-saveRDS(noAD, paste("data/noAD_",cell.type,".rds",sep=""))
-saveRDS(possibleAD, paste("data/possibleAD_",cell.type,".rds",sep=""))
-saveRDS(probableAD, paste("data/probableAD_",cell.type,".rds",sep=""))
-saveRDS(definiteAD, paste("data/definiteAD_",cell.type,".rds",sep=""))
 ```

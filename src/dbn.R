@@ -22,7 +22,6 @@ read.gmt <- function(file) {
 cell.type = "Mic"
 clusts <- readRDS(paste0("processed-data/",cell.type,"/clusters.rds"))
 df <- as.data.frame(readRDS(paste0("processed-data/",cell.type,"/top_gene_counts.rds")))
-K.clusters = 4
 
 # Load gene lists for network generation
 marker.root <- "processed-data/markers/"
@@ -42,17 +41,16 @@ UpSet(mat,comb_order = order(-comb_size(mat)))
 gene.df <- df[,intersect(adLib$genes,kegg$genes)]
 
 # Write output for GRNVBEM
-pseudotime.sorted <- t(df)[,order(clusts$DiseaseScore)]
+pseudotime.sorted <- t(gene.df)[,order(clusts$DiseaseScore)]
 write.csv(pseudotime.sorted, file=paste0("processed-data/",cell.type,"/GRNVBEM.csv"))
 
 # Divide cells into layers based on clusters
-N.genes = 25
-df <- df[,1:N.genes]
 clusts$ScoreClusts = as.numeric(clusts$DiseaseRange)
+K.clusters = length(unique(clusts$ScoreClusts))
 
 layers = list()
 for (i in seq(K.clusters)) {
-  layers[[i]] <- df[clusts$ScoreClusts == i,]
+  layers[[i]] <- gene.df[clusts$ScoreClusts == i,]
   colnames(layers[[i]]) <- paste0(colnames(layers[[i]]),"_t",i)
 }
 
@@ -85,8 +83,6 @@ for (i in (1:K.clusters)){
   bl <- rbind(bl,
               expand.grid(colnames(newdf),prevcols),
               expand.grid(colnames(newdf),colnames(newdf)))
-#  wl <- rbind(wl,
-#              expand.grid(prevcols, colnames(newdf)))
   prevcols <- c(prevcols,colnames(newdf))
   if (is.null(bndf)){
     bndf <- newdf
@@ -95,8 +91,6 @@ for (i in (1:K.clusters)){
     bndf <- cbind(bndf,newdf)
   }
 }
-
-colnames(wl) <- c("from","to")
 
 # many different methods available for network learning
 #network <- pc.stable(bndf,blacklist = bl)
@@ -108,6 +102,20 @@ network[["arcs"]]
 plot(network)
 groups <- list()
 for (i in seq(K.clusters)) {
-  groups[[i]] <- colnames(layers[[i]])
+  groups[[i]] <- names(network$nodes)[grep(paste0(".*_t",i),names(network$nodes))]
+  #groups[[i]] <- colnames(layers[[i]])
 }
 graphviz.plot(network,groups=groups)
+
+write.sif <- function(file,network,df) {
+  arcs = arc.strength(network, bndf)
+  arcs$relation = rep.int("->",dim(arcs)[1])
+  arcs$parentTime = apply(as.matrix(arcs$from), MARGIN=1, FUN=function (x) {as.numeric(strsplit(x,"_t")[[1]][2])})
+  arcs = arcs[,c("from","relation","to","strength")]
+  names(arcs) = c("Parent","-","Child","Weight")
+  write.table(arcs,file=file, row.names = FALSE, quote = FALSE,sep=" ")
+  nodeTimes = list("names"=names(network$nodes),"times"=apply(as.matrix(unlist(names(network$nodes))), MARGIN=1, FUN=function (x) {as.numeric(strsplit(x,"_t")[[1]][2])}))
+  write.table(nodeTimes,paste0(file,".timetable"), row.names = FALSE, quote = FALSE, sep=" ")
+}
+
+write.sif(paste0("processed-data/",cell.type,"/DBN.sif"), network, df)

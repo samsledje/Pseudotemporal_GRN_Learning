@@ -74,7 +74,7 @@ sce <- getBMFeatureAnnos(sce, filters="hgnc_symbol",
 ### Load from processed SCE Object
 ```{r "Load from SCE"}
 # SCE file name
-sce.file.name <- "~/Pseudotemporal-GRNs/data/Processed_HD_data/human_hd_sce.rds"
+sce.file.name <- "~/Pseudotemporal-GRNs/raw-data/sce.rds"
 
 sce <- readRDS(sce.file.name)
 ```
@@ -113,6 +113,9 @@ Once the ACTIONet has been constructed, choose the set of markers for the cell t
 data("curatedMarkers_human")
 markers <- curatedMarkers_human$Brain$PFC$major.celltypes$marker.genes
 
+curatedMarkers_human$Brain$PFC$Velmeshev2019$reference
+curatedMarkers_human$Brain$PFC$PEC$reference
+
 # Annotate cell types
 ACTIONet.out <- annotate.cells.from.archetypes.using.markers(ACTIONet.out,
                                                              markers,
@@ -135,7 +138,7 @@ saveRDS(ACTIONet.out, file = full.ACTIONet.file)
 ### Load Annotated ACTIONet
 ```{r "Load Annotated ACTIONet"}
 # Full ACTIONet File
-full.ACTIONet.file <- "~/Pseudotemporal-GRNs/data/allCellsACTIONet.rds"
+full.ACTIONet.file <- "~/Pseudotemporal-GRNs/raw-data/allCellsACTIONet.rds"
 
 ACTIONet.out <- readRDS(file = full.ACTIONet.file)
 ```
@@ -150,7 +153,7 @@ Heatmap(t(enrichment.out), cluster_columns=FALSE, cluster_rows=FALSE, name='Enri
 ```
 
 ```{r "Calculate disease scores"}
-correlated.state <- which.max(enrichment.out[,2])
+correlated.state <- which.max(enrichment.out[,5])
 
 disease.score <- ACTIONet.out$unification.out$H.core[correlated.state,]
 core.significance <- ACTIONet.out$unification.out$DE.core@assays[["significance"]]

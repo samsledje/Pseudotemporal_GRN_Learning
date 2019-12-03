@@ -1,4 +1,4 @@
-#setwd("/home/samsledje/Pseudotemporal-GRNs")
+#setwd("/home/samsl/Pseudotemporal-GRNs")
 setwd("D:/Drive/PhD/GitHub/Pseudotemporal_GRN_Learning")
 
 require(bnlearn)

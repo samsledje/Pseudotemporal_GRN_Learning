@@ -37,8 +37,6 @@ blalock_dn <- read.gmt(paste0(marker.root,"BLALOCK_AD_DN.gmt"))
 blalock_up <- read.gmt(paste0(marker.root,"BLALOCK_AD_UP.gmt"))
 
 gene.sets <- list("kegg"=kegg$genes,"incpt_dn"=blalock_incpt_dn$genes,"incpt_up"=blalock_incpt_up$genes,"dn"=blalock_dn$genes,"up"=blalock_up$genes)
-mat <- make_comb_mat(gene.sets, mode = "distinct")
-UpSet(mat,comb_order = order(-comb_size(mat)))
 
 # Select subset of genes
 gene.df <- df[,intersect(adLib$genes,kegg$genes)]

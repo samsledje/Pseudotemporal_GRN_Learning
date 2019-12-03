@@ -1,12 +1,9 @@
-setwd("/Users/dkaur/Documents/Pseudotemporal_GRN_Learning")
-
-#setwd("/home/samsledje/Pseudotemporal-GRNs")
 setwd("/home/samsl/Pseudotemporal-GRNs")
 #setwd("D:/Drive/PhD/GitHub/Pseudotemporal_GRN_Learning")
 
 require(bnlearn)
 require(dplyr)
-#require(Rgraphviz)
+require(Rgraphviz)
 
 read.gmt <- function(file) {
   if (!grepl("\\.gmt$", file)[1]) {
@@ -37,8 +34,6 @@ blalock_dn <- read.gmt(paste0(marker.root,"BLALOCK_AD_DN.gmt"))
 blalock_up <- read.gmt(paste0(marker.root,"BLALOCK_AD_UP.gmt"))
 
 gene.sets <- list("kegg"=kegg$genes,"incpt_dn"=blalock_incpt_dn$genes,"incpt_up"=blalock_incpt_up$genes,"dn"=blalock_dn$genes,"up"=blalock_up$genes)
-mat <- make_comb_mat(gene.sets, mode = "distinct")
-UpSet(mat,comb_order = order(-comb_size(mat)))
 
 # Select subset of genes
 gene.df <- df[,intersect(adLib$genes,kegg$genes)]
@@ -48,8 +43,6 @@ pseudotime.sorted <- t(gene.df)[,order(clusts$DiseaseScore)]
 write.csv(pseudotime.sorted, file=paste0("processed-data/",cell.type,"/GRNVBEM.csv"))
 
 # Divide cells into layers based on clusters
-N.genes = 139
-df <- df[,1:N.genes]
 clusts$ScoreClusts = as.numeric(clusts$DiseaseRange)
 K.clusters = length(unique(clusts$ScoreClusts))
 
@@ -60,8 +53,7 @@ for (i in seq(K.clusters)) {
 }
 
 # Rows = cells, Columns = genes
-
-simulate.Observations <- function(matrix){
+sim.df <- function(matrix){
   rownames(matrix) <- c()
   rawdf <- as.data.frame(matrix)
   rawdf[] <- lapply(rawdf, factor)
@@ -75,6 +67,19 @@ simulate.Observations <- function(matrix){
   return(simdf)
 }
 
+sample.df <- function(matrix,samplesize){
+  rownames(matrix) <- c()
+  rawdf <- as.data.frame(matrix)
+  rawdf[] <- lapply(rawdf, factor)
+  
+  # network learning requires > 1 possible value for each var
+  sampled <- sample_n(rawdf,samplesize,replace = TRUE)
+  sampled <- select_if(sampled,function(x) return(nlevels(x)>1))
+  return(sampled)
+}
+
+DO_BOOTSTRAP = TRUE
+
 create_df <- function(){
   bl <- data.frame()
   bndf <- NULL
@@ -83,7 +88,13 @@ create_df <- function(){
   
   for (i in (1:K.clusters)){
     matrix <- layers[[i]]
-    newdf <- simulate.Observations(matrix)
+    
+    if (DO_BOOTSTRAP) {
+      newdf <- sample.df(matrix)
+    } else {
+      newdf <- sim.df(matrix)
+    }
+
     # only allow edges to future time points
     bl <- rbind(bl,
                 expand.grid(colnames(newdf),prevcols),
@@ -108,6 +119,7 @@ create_df <- function(){
 # network <- pc.stable(bndf,blacklist = bl)
 # pc_network <- pc.stable(bndf, blacklist = bl, alpha = .05)[["arcs"]]
 # gs_network <- gs(bndf, blacklist = bl, alpha = .05)[["arcs"]]
+network <- iamb(bndf, blacklist = bl,alpha = .05)
 interactions <- data.frame()
 
 for (i in 1:20){
@@ -121,12 +133,9 @@ for (i in 1:20){
 interactions[duplicated(interactions),]
 
 # output edges of graph
-network[["arcs"]]
-#plot(network)
 groups <- list()
 for (i in seq(K.clusters)) {
   groups[[i]] <- names(network$nodes)[grep(paste0(".*_t",i),names(network$nodes))]
-  #groups[[i]] <- colnames(layers[[i]])
 }
 graphviz.plot(network,groups=groups)
 

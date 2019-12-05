@@ -8794,6 +8794,30 @@ ggsave(paste0(&quot;img/&quot;,cell.type,&quot;_density_hist.png&quot;))</code><
 <!-- rnb-text-begin -->
 <!-- rnb-text-end -->
 <!-- rnb-chunk-begin -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxuI0NsdXN0ZXIgY2VsbHMgYnkgZGlzZWFzZSBzY29yZVxuTS5nZW5lcyA9IGRpbShzY2UpWzFdXG50b3AuZ2VuZXMgPSBhc3NvY2lhdGVkLmdlbmVzWzE6TS5nZW5lc11cbnRvcC5zY2UgPC0gc2NlW3Jvd25hbWVzKHNjZSkgJWluJSB0b3AuZ2VuZXNdXG5kZiA8LSBhcy5kYXRhLmZyYW1lKGFzLm1hdHJpeCh0KGNvdW50cyh0b3Auc2NlKSkpKVxuXG5LLmNlbnRlcnMgPSBuYmluc1xua20gPC0ga21lYW5zKGRmLCBLLmNlbnRlcnMpXG5wYyA8LSBwcmNvbXAodChkZikpXG5wbG90KHBjJHJvdGF0aW9uWywxXSxkaXNlYXNlLnNjb3JlLCBjb2w9a20kY2x1c3RlciwgeGxhYj1cIlBDMVwiKVxuI3BuZyhwYXN0ZTAoXCJpbWcvXCIsY2VsbC50eXBlLFwiX2Rpc2Vhc2VfcGMxLnBuZ1wiKSlcbnBsb3QocGMkcm90YXRpb25bLDFdLGRpc2Vhc2Uuc2NvcmUsIGNvbD1kaXNjJGRpc2Vhc2Uuc2NvcmUsIHhsYWI9XCJQQzFcIilcblxuY2x1c3RzIDwtIGFzLmRhdGEuZnJhbWUobGlzdChcIkNlbGxOYW1lc1wiID0gY29sbmFtZXMoc2NlKSxcbiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgXCJLTWVhbnNcIiA9IGttJGNsdXN0ZXIsXG4gICAgICAgICAgICAgICAgICAgICAgICAgICAgIFwiRGlzZWFzZVNjb3JlXCIgPSBkaXNlYXNlLnNjb3JlLFxuICAgICAgICAgICAgICAgICAgICAgICAgICAgICBcIkRpc2Vhc2VSYW5nZVwiID0gZGlzYyRkaXNlYXNlLnNjb3JlLFxuICAgICAgICAgICAgICAgICAgICAgICAgICAgICBcIkFyY2hldHlwZUNsdXN0ZXJcIiA9IEFDVElPTmV0Lm91dCR1bmlmaWNhdGlvbi5vdXQkYXNzaWdubWVudHMuY29yZVxuICAgICAgICAgICAgICAgICAgICAgICAgICAgICApKVxuXG5zYXZlUkRTKGRmLHBhc3RlMChcInByb2Nlc3NlZC1kYXRhL1wiLGNlbGwudHlwZSxcIi90b3BfZ2VuZV9jb3VudHMucmRzXCIpKVxuc2F2ZVJEUyhjbHVzdHMscGFzdGUwKFwicHJvY2Vzc2VkLWRhdGEvXCIsY2VsbC50eXBlLFwiL2NsdXN0ZXJzLnJkc1wiKSlcbmBgYCJ9 -->
+<pre class="r"><code>#Cluster cells by disease score
+M.genes = dim(sce)[1]
+top.genes = associated.genes[1:M.genes]
+top.sce &lt;- sce[rownames(sce) %in% top.genes]
+df &lt;- as.data.frame(as.matrix(t(counts(top.sce))))
+
+K.centers = nbins
+km &lt;- kmeans(df, K.centers)
+pc &lt;- prcomp(t(df))
+plot(pc$rotation[,1],disease.score, col=km$cluster, xlab=&quot;PC1&quot;)
+#png(paste0(&quot;img/&quot;,cell.type,&quot;_disease_pc1.png&quot;))
+plot(pc$rotation[,1],disease.score, col=disc$disease.score, xlab=&quot;PC1&quot;)
+
+clusts &lt;- as.data.frame(list(&quot;CellNames&quot; = colnames(sce),
+                             &quot;KMeans&quot; = km$cluster,
+                             &quot;DiseaseScore&quot; = disease.score,
+                             &quot;DiseaseRange&quot; = disc$disease.score,
+                             &quot;ArchetypeCluster&quot; = ACTIONet.out$unification.out$assignments.core
+                             ))
+
+saveRDS(df,paste0(&quot;processed-data/&quot;,cell.type,&quot;/top_gene_counts.rds&quot;))
+saveRDS(clusts,paste0(&quot;processed-data/&quot;,cell.type,&quot;/clusters.rds&quot;))</code></pre>
+<!-- rnb-source-end -->
 <!-- rnb-chunk-end -->
 </div>
 

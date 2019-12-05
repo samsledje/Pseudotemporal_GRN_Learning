@@ -1,0 +1,203 @@
+```{r setup, include=FALSE, echo=FALSE}
+require("knitr")
+opts_knit$set(root.dir = "/home/samsl/Pseudotemporal-GRNs")
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r "Load Libraries", warning=FALSE, include=TRUE, results='hide'}
+require(bnlearn)
+require(dplyr)
+require(Rgraphviz)
+```
+
+```{r "Define functions"}
+read.gmt <- function(file) {
+  if (!grepl("\\.gmt$", file)[1]) {
+    stop("Pathway information must be a .gmt file")
+  }
+  geneSetDB = readLines(file)
+  geneSetDB = strsplit(geneSetDB, "\t")
+  name = unlist(geneSetDB[1])
+  desc = strsplit(geneSetDB[2][[1]],"> ")[[1]][2]
+  geneSetDB = unlist(geneSetDB[-(1:2)])
+  geneSetDB = list("name"=name,"description"=desc,"genes"=geneSetDB)
+  return(geneSetDB)
+}
+
+# Rows = cells, Columns = genes
+sim.df <- function(matrix){
+  rownames(matrix) <- c()
+  rawdf <- as.data.frame(matrix)
+  rawdf[] <- lapply(rawdf, factor)
+  
+  # network learning requires > 1 possible value for each var
+  df <- select_if(rawdf,function(x) return(nlevels(x)>1))
+  
+  # learn from gene expression at each time step to generate data
+  network <- hc(df)
+  simdf <- rbn(network, data = df, 1000)
+  return(simdf)
+}
+
+sample.df <- function(matrix,samplesize){
+  rownames(matrix) <- c()
+  rawdf <- as.data.frame(matrix)
+  rawdf[] <- lapply(rawdf, factor)
+  
+  # network learning requires > 1 possible value for each var
+  sampled <- sample_n(rawdf,samplesize,replace = TRUE)
+  sampled <- select_if(sampled,function(x) return(nlevels(x)>1))
+  return(sampled)
+}
+
+BOOTSTRAP_SAMPLES = FALSE
+
+create_df <- function(){
+  bl <- data.frame()
+  bndf <- NULL
+  prevdf <- NULL
+  prevcols <- c()
+  
+  for (i in (1:K.clusters)){
+    matrix <- layers[[i]]
+    
+    if (BOOTSTRAP_SAMPLES) {
+      newdf <- sample.df(matrix,2000)
+    } else {
+      newdf <- sim.df(matrix)
+    }
+
+    # only allow edges to future time points
+    bl <- rbind(bl,
+                expand.grid(colnames(newdf),prevcols),
+                expand.grid(colnames(newdf),colnames(newdf)))
+  
+    prevcols <- c(prevcols,colnames(newdf))
+    if (is.null(bndf)){
+      bndf <- newdf
+    }
+    else{
+      bndf <- cbind(bndf,newdf)
+    }
+    prevdf <- newdf
+  }
+  res <- list("df" = bndf, "bl" = bl)
+  return(res)
+}
+
+write.sif <- function(file,network,df) {
+  arcs = arc.strength(network, df)
+  arcs$relation = rep.int("->",dim(arcs)[1])
+  arcs$parentTime = apply(as.matrix(arcs$from), MARGIN=1, FUN=function (x) {as.numeric(strsplit(x,"_t")[[1]][2])})
+  arcs = arcs[,c("from","relation","to","strength")]
+  names(arcs) = c("Parent","-","Child","Weight")
+  write.table(arcs,file=file, row.names = FALSE, quote = FALSE,sep=" ")
+  nodeTimes = list("names"=names(network$nodes),"times"=apply(as.matrix(unlist(names(network$nodes))), MARGIN=1, FUN=function (x) {as.numeric(strsplit(x,"_t")[[1]][2])}))
+  write.table(nodeTimes,paste0(file,".timetable"), row.names = FALSE, quote = FALSE, sep=" ")
+}
+```
+
+```{r "Load and prepare data"}
+# Select which data to load
+cell.type = "Mic"
+clusts <- readRDS(paste0("processed-data/",cell.type,"/clusters.rds"))
+df <- as.data.frame(readRDS(paste0("processed-data/",cell.type,"/top_gene_counts.rds")))
+
+# Load gene lists for network generation
+marker.root <- "processed-data/markers/"
+kegg <- read.gmt(paste0(marker.root,"KEGG_AD.gmt"))
+adLib <- list("name"="library","description"="Library in AD SCE exeriment","genes"=colnames(df))
+blalock_incpt_dn <- read.gmt(paste0(marker.root,"BLALOCK_INCPT_AD_DN.gmt"))
+blalock_incpt_up <- read.gmt(paste0(marker.root,"BLALOCK_INCPT_AD_UP.gmt"))
+blalock_dn <- read.gmt(paste0(marker.root,"BLALOCK_AD_DN.gmt"))
+blalock_up <- read.gmt(paste0(marker.root,"BLALOCK_AD_UP.gmt"))
+blalock <- list("name"="blalock","description"="All blalock","genes"=c(blalock_incpt_dn$genes, blalock_incpt_up$genes, blalock_dn$genes, blalock_up$genes))
+gene.sets <- list("library"=adLib,"kegg"=kegg$genes,"incpt_dn"=blalock_incpt_dn$genes,"incpt_up"=blalock_incpt_up$genes,"dn"=blalock_dn$genes,"up"=blalock_up$genes,"blalock"=blalock)
+
+# Select subset of genes
+#gene.df <- df[,intersect(adLib$genes,kegg$genes)]
+gene.df <- df[,intersect(adLib$genes,blalock$genes)]
+```
+
+```{r "Prepare data for GRNVBEM"}
+# Write output for GRNVBEM
+pseudotime.sorted <- t(gene.df)[,order(clusts$DiseaseScore)]
+write.csv(pseudotime.sorted, file=paste0("processed-data/",cell.type,"/GRNVBEM.csv"))
+```
+
+```{r "Prepare layers"}
+# Divide cells into layers based on clusters
+clusts$ScoreClusts = as.numeric(clusts$DiseaseRange)
+K.clusters = length(unique(clusts$ScoreClusts))
+
+layers = list()
+for (i in seq(K.clusters)) {
+  layers[[i]] <- gene.df[clusts$ScoreClusts == i,]
+  colnames(layers[[i]]) <- paste0(colnames(layers[[i]]),"_t",i)
+}
+gene.names <- unlist(list(cbind(unlist(lapply(layers,colnames)))))
+```
+
+```{r}
+# many different methods available for network learning
+# network <- pc.stable(bndf,blacklist = bl)
+# pc_network <- pc.stable(bndf, blacklist = bl, alpha = .05)[["arcs"]]
+# gs_network <- gs(bndf, blacklist = bl, alpha = .05)[["arcs"]]
+
+# --------MAIN LOOP----------- #
+ITERS = 5
+#ALPHA = 0.22
+ALPHA = 0.05
+interactions <- data.frame()
+
+for (i in 1:ITERS){
+  print(i)
+  res <- create_df()
+  bndf <- res$df
+  bl <- res$bl
+  fi_network <- fast.iamb(bndf, blacklist = bl, alpha = ALPHA)
+  interactions <- rbind(interactions,fi_network[["arcs"]])
+}
+# -------------------------- #
+```
+
+```{r "Explore result network"}
+bootArcs <- interactions[duplicated(interactions),]
+bootArcs$from <- as.character(bootArcs$from)
+bootArcs$to <- as.character(bootArcs$to)
+network <- empty.graph(gene.names)
+arcs(network) <- bootArcs
+adjacency <- table(bootArcs)
+adjacency[adjacency > 0 ] = 1L
+saveRDS(adjacency, paste0("processed-data/",cell.type,"/bootAdjacency.rds"))
+
+# output edges of graph
+groups <- list()
+for (i in seq(K.clusters)) {
+  groups[[i]] <- names(network$nodes)[grep(paste0(".*_t",i),names(network$nodes))]
+}
+graphviz.plot(network,groups=groups)
+
+# Numbers of parents & children
+n.parents = unlist(lapply(network$nodes, function (x) {length(x$parents)}))
+n.children = unlist(lapply(network$nodes, function (x) {length(x$children)}))
+# Node degrees
+n.degree = unlist(lapply(c(n.parents,n.children), sum))
+plot(hist(n.degree))
+```
+
+```{r "Validate network"}
+blalock_incpt_dn <- read.gmt(paste0(marker.root,"BLALOCK_INCPT_AD_DN.gmt"))
+blalock_incpt_up <- read.gmt(paste0(marker.root,"BLALOCK_INCPT_AD_UP.gmt"))
+blalock_dn <- read.gmt(paste0(marker.root,"BLALOCK_AD_DN.gmt"))
+blalock_up <- read.gmt(paste0(marker.root,"BLALOCK_AD_UP.gmt"))
+gene.sets <- list("library"=adLib,"kegg"=kegg$genes,"incpt_dn"=blalock_incpt_dn$genes,"incpt_up"=blalock_incpt_up$genes,"dn"=blalock_dn$genes,"up"=blalock_up$genes)
+```
+
+```{r "Export network"}
+# Adjacency Matrix
+adjacency <- amat(network)
+
+# SIF
+write.sif(paste0("processed-data/",cell.type,"/DBN.sif"), network, df)
+```

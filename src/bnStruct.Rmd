@@ -1,7 +1,17 @@
-setwd("/home/samsl/Pseudotemporal-GRNs")
-#setwd("D:/Drive/PhD/GitHub/Pseudotemporal_GRN_Learning")
+---
+title: "learnDBN.Rmd"
+output:
+  html_notebook: default
+  pdf_document: default
+---
+```{r setup, include=FALSE, echo=FALSE}
+require("knitr")
+opts_knit$set(root.dir = "/home/samsl/Pseudotemporal-GRNs")
+knitr::opts_chunk$set(echo = TRUE)
+```
 
-require(bnlearn)
+```{r "Requirements",warning=FALSE, include=FALSE, results='hide'}
+require(bnstruct)
 require(dplyr)
 require(Rgraphviz)
 
@@ -17,12 +27,16 @@ read.gmt <- function(file) {
   geneSetDB = list("name"=name,"description"=desc,"genes"=geneSetDB)
   return(geneSetDB)
 }
+```
 
+```{r}
 # Select which data to load
 cell.type = "Mic"
 clusts <- readRDS(paste0("processed-data/",cell.type,"/clusters.rds"))
 df <- as.data.frame(readRDS(paste0("processed-data/",cell.type,"/top_gene_counts.rds")))
+```
 
+```{r}
 # Load gene lists for network generation
 marker.root <- "processed-data/markers/"
 kegg <- read.gmt(paste0(marker.root,"KEGG_AD.gmt"))
@@ -41,104 +55,69 @@ gene.df <- df[,intersect(adLib$genes,kegg$genes)]
 # Write output for GRNVBEM
 pseudotime.sorted <- t(gene.df)[,order(clusts$DiseaseScore)]
 write.csv(pseudotime.sorted, file=paste0("processed-data/",cell.type,"/GRNVBEM.csv"))
+```
 
+```{r}
 # Divide cells into layers based on clusters
 clusts$ScoreClusts = as.numeric(clusts$DiseaseRange)
 K.clusters = length(unique(clusts$ScoreClusts))
 
-layers = list()
+layers = c()
 for (i in seq(K.clusters)) {
-  layers[[i]] <- gene.df[clusts$ScoreClusts == i,]
+  layers[[i]] <- as.data.frame(gene.df[clusts$ScoreClusts == i,])
   colnames(layers[[i]]) <- paste0(colnames(layers[[i]]),"_t",i)
 }
+```
 
-# Rows = cells, Columns = genes
-sim.df <- function(matrix){
-  rownames(matrix) <- c()
-  rawdf <- as.data.frame(matrix)
-  rawdf[] <- lapply(rawdf, factor)
-  
-  # network learning requires > 1 possible value for each var
-  df <- select_if(rawdf,function(x) return(nlevels(x)>1))
-  
-  # learn from gene expression at each time step to generate data
-  network <- hc(df)
-  simdf <- rbn(network, data = df, 1000)
-  return(simdf)
-}
+```{r}
+# Build bnstruct dataset
+# Rows = observations = cells
+# Columns = variables = genes
+gene.names <- unlist(list(cbind(unlist(lapply(layers,colnames)))))
 
-sample.df <- function(matrix,samplesize){
-  rownames(matrix) <- c()
-  rawdf <- as.data.frame(matrix)
-  rawdf[] <- lapply(rawdf, factor)
-  
-  # network learning requires > 1 possible value for each var
-  sampled <- sample_n(rawdf,samplesize,replace = TRUE)
-  sampled <- select_if(sampled,function(x) return(nlevels(x)>1))
-  return(sampled)
-}
+n <- sum(unlist(lapply(layers,function(x){dim(x)[1]})))
 
-BOOTSTRAP_SAMPLES = FALSE
-
-create_df <- function(){
-  bl <- data.frame()
-  bndf <- NULL
-  prevdf <- NULL
-  prevcols <- c()
-  
-  for (i in (1:K.clusters)){
-    matrix <- layers[[i]]
-    
-    if (BOOTSTRAP_SAMPLES) {
-      newdf <- sample.df(matrix,2000)
-    } else {
-      newdf <- sim.df(matrix)
-    }
-
-    # only allow edges to future time points
-    bl <- rbind(bl,
-                expand.grid(colnames(newdf),prevcols),
-                expand.grid(colnames(newdf),colnames(newdf)))
-  
-    prevcols <- c(prevcols,colnames(newdf))
-    if (is.null(bndf)){
-      bndf <- newdf
+data <- NULL
+for (i in seq(K.clusters))
+{
+  layer.n <- dim(layers[[i]])[1]
+  layer.genes <- colnames(layers[[i]])
+  padding <- t(replicate(n - layer.n, rep(NA,length(layer.genes))))
+  colnames(padding) <- layer.genes
+  padded.layer = rbind(layers[[i]], padding)
+  if (is.null(data)){
+      data <- padded.layer
     }
     else{
-      bndf <- cbind(bndf,newdf)
+      data <- cbind(data,padded.layer)
     }
-    prevdf <- newdf
-  }
-  res <- list("df" = bndf, "bl" = bl)
-  return(res)
 }
+```
 
-# many different methods available for network learning
-# network <- pc.stable(bndf,blacklist = bl)
-# pc_network <- pc.stable(bndf, blacklist = bl, alpha = .05)[["arcs"]]
-# gs_network <- gs(bndf, blacklist = bl, alpha = .05)[["arcs"]]
+```{r}
+BN.data <- BNDataset(data = data,
+                     discreteness = rep('c', length(gene.names)),
+                     variables = gene.names,
+                     node.sizes = apply(data, 2, max, na.rm = TRUE)
+                     )
 
-# -------------------------- #
-set.seed(12345)
-ITERS = 100
-#ALPHA = 0.22
-ALPHA = 0.05
-interactions <- data.frame()
+BN.data <- impute(BN.data)
+saveRDS(BN.data, paste0("processed-data/",cell.type,"/BNdata.rds"))
 
-for (i in 1:ITERS){
-  print(i)
-  res <- create_df()
-  bndf <- res$df
-  bl <- res$bl
-  fi_network <- fast.iamb(bndf, blacklist = bl, alpha = ALPHA)
-  interactions <- rbind(interactions,fi_network[["arcs"]])
-}
 
-interactions[duplicated(interactions),]
-# -------------------------- #
+```
 
-network <- fi_network
-print(length(network[["arcs"]]))
+```{r}
+BN.data <- readRDS(paste0("processed-data/",cell.type,"/BNdata.rds"))
+net.layers <- apply(as.matrix(gene.names), MARGIN=1, FUN=function (x) {as.numeric(strsplit(x,"_t")[[1]][2])})
+
+# Learn Network Structure
+DBN <- learn.network(BN.data,
+                     seed = 12345,
+                     algo = "mmpc",
+                     layering = net.layers)
+saveRDS(DBN, paste0("processed-data/",cell.type,"/BN.rds"))
+```
 
 # output edges of graph
 groups <- list()

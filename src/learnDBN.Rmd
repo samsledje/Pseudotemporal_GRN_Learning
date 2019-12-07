@@ -8,6 +8,7 @@ knitr::opts_chunk$set(echo = TRUE)
 require(bnlearn)
 require(dplyr)
 require(Rgraphviz)
+require(circlize)
 ```
 
 ```{r "Define functions"}
@@ -25,7 +26,7 @@ read.gmt <- function(file) {
 }
 
 # Rows = cells, Columns = genes
-sim.df <- function(matrix){
+sim.df <- function(matrix,samplesize){
   rownames(matrix) <- c()
   rawdf <- as.data.frame(matrix)
   rawdf[] <- lapply(rawdf, factor)
@@ -35,7 +36,7 @@ sim.df <- function(matrix){
   
   # learn from gene expression at each time step to generate data
   network <- hc(df)
-  simdf <- rbn(network, data = df, 1000)
+  simdf <- rbn(network, data = df, samplesize)
   return(simdf)
 }
 
@@ -51,8 +52,9 @@ sample.df <- function(matrix,samplesize){
 }
 
 BOOTSTRAP_SAMPLES = FALSE
+SAMPLE_SIZE = 2500
 
-create_df <- function(){
+create_df <- function(layers){
   bl <- data.frame()
   bndf <- NULL
   prevdf <- NULL
@@ -62,9 +64,9 @@ create_df <- function(){
     matrix <- layers[[i]]
     
     if (BOOTSTRAP_SAMPLES) {
-      newdf <- sample.df(matrix,2000)
+      newdf <- sample.df(matrix,SAMPLE_SIZE)
     } else {
-      newdf <- sim.df(matrix)
+      newdf <- sim.df(matrix,SAMPLE_SIZE)
     }
 
     # only allow edges to future time points
@@ -85,12 +87,23 @@ create_df <- function(){
   return(res)
 }
 
-write.sif <- function(file,network,df) {
-  arcs = arc.strength(network, df)
-  arcs$relation = rep.int("->",dim(arcs)[1])
-  arcs$parentTime = apply(as.matrix(arcs$from), MARGIN=1, FUN=function (x) {as.numeric(strsplit(x,"_t")[[1]][2])})
-  arcs = arcs[,c("from","relation","to","strength")]
-  names(arcs) = c("Parent","-","Child","Weight")
+write.sif <- function(file,network,df=NA) {
+  if (!is.na(df)) {
+    arcs = arc.strength(network, df)
+    arcs$relation = rep.int("->",dim(arcs)[1])
+    arcs$parentTime = apply(as.matrix(arcs$from), MARGIN=1, FUN=function (x) {as.numeric(strsplit(x,"_t")[[1]][2])})
+    arcs = arcs[,c("from","relation","to","strength")]
+    names(arcs) = c("Parent","-","Child","Weight")
+  } else {
+    arcs = network[["arcs"]]
+    arcs = list("from"=arcs[,1],"to"=arcs[,2])
+    arcs$relation = rep.int("->",length(arcs$from))
+    arcs$parentTime = apply(as.matrix(arcs$from), MARGIN=1, FUN=function (x) {as.numeric(strsplit(x,"_t")[[1]][2])})
+    arcs = data.frame(arcs)
+    arcs = arcs[,c("from","relation","to")]
+    names(arcs) = c("Parent","-","Child")
+  }
+  
   write.table(arcs,file=file, row.names = FALSE, quote = FALSE,sep=" ")
   nodeTimes = list("names"=names(network$nodes),"times"=apply(as.matrix(unlist(names(network$nodes))), MARGIN=1, FUN=function (x) {as.numeric(strsplit(x,"_t")[[1]][2])}))
   write.table(nodeTimes,paste0(file,".timetable"), row.names = FALSE, quote = FALSE, sep=" ")
@@ -115,8 +128,23 @@ blalock <- list("name"="blalock","description"="All blalock","genes"=c(blalock_i
 gene.sets <- list("library"=adLib,"kegg"=kegg$genes,"incpt_dn"=blalock_incpt_dn$genes,"incpt_up"=blalock_incpt_up$genes,"dn"=blalock_dn$genes,"up"=blalock_up$genes,"blalock"=blalock)
 
 # Select subset of genes
-#gene.df <- df[,intersect(adLib$genes,kegg$genes)]
-gene.df <- df[,intersect(adLib$genes,blalock$genes)]
+gene.df <- df[,intersect(adLib$genes,kegg$genes)]
+```
+
+```{r "Subset genes"}
+# Subset genes based on:
+#   - expression change across time (variable genes)
+gene.stdevs = apply(gene.df, 2, sd)
+gene.stdev.ranks = order(gene.stdevs)
+names(gene.stdev.ranks) <- colnames(gene.df)
+norm.stdev.ranks = gene.stdev.ranks / dim(gene.df)[2]
+high.variable.gene.ranks <- gene.stdev.ranks[norm.stdev.ranks <= 0.5]
+gene.df <- gene.df[,names(high.variable.gene.ranks)]
+dim(gene.df)
+
+#   - overall rank expression (high expression genes)
+gene.df <- gene.df[,intersect(names(high.expr.kegg.genes),colnames(gene.df))]
+dim(gene.df)
 ```
 
 ```{r "Prepare data for GRNVBEM"}
@@ -138,21 +166,61 @@ for (i in seq(K.clusters)) {
 gene.names <- unlist(list(cbind(unlist(lapply(layers,colnames)))))
 ```
 
-```{r}
+```{r "Gene Expression Heatmap"}
+mat <- NULL
+for (i in seq(K.clusters)) {
+  layer.mean <- apply(layers[[i]],2,mean)
+  if (is.null(mat)) {
+    mat <- data.table(layer.mean)
+  } else {
+    mat <- cbind(mat, data.table(layer.mean))
+  }
+}
+
+# Find genes which cluster together with high change in expression
+avg.expression <- data.frame(mat)
+rownames(avg.expression) <- names(gene.df)
+colnames(avg.expression) <- c(1,2,3,4)
+ht = Heatmap(avg.expression, cluster_columns = FALSE)
+top.difeq.genes <- rownames(avg.expression)[row_order(ht)][1:30]
+Heatmap(avg.expression[top.difeq.genes,], cluster_columns = FALSE)
+```
+
+```{r "Where do chosen genes rank among all genes?"}
+all.genes.avg.expr <- apply(df,2,mean)
+all.genes.expr.rank <- order(all.genes.avg.expr)
+names(all.genes.expr.rank) <- colnames(df)
+chosen.genes.expr.rank <- all.genes.expr.rank[top.difeq.genes]
+normalized.rank = chosen.genes.expr.rank / length(all.genes.expr.rank)
+Heatmap(1 - normalized.rank)
+
+# Genes in top 75% of rank
+chosen.genes <- normalized.rank[normalized.rank <= 0.75]
+dbn.df <- gene.df[,names(chosen.genes)]
+
+reduced.layers = list()
+for (i in seq(K.clusters)) {
+  reduced.layers[[i]] <- dbn.df[clusts$ScoreClusts == i,]
+  colnames(reduced.layers[[i]]) <- paste0(colnames(reduced.layers[[i]]),"_t",i)
+}
+gene.names <- unlist(list(cbind(unlist(lapply(reduced.layers,colnames)))))
+```
+
+```{r, warning=FALSE}
 # many different methods available for network learning
 # network <- pc.stable(bndf,blacklist = bl)
 # pc_network <- pc.stable(bndf, blacklist = bl, alpha = .05)[["arcs"]]
 # gs_network <- gs(bndf, blacklist = bl, alpha = .05)[["arcs"]]
 
 # --------MAIN LOOP----------- #
-ITERS = 5
+ITERS = 100
 #ALPHA = 0.22
 ALPHA = 0.05
 interactions <- data.frame()
 
 for (i in 1:ITERS){
   print(i)
-  res <- create_df()
+  res <- create_df(reduced.layers)
   bndf <- res$df
   bl <- res$bl
   fi_network <- fast.iamb(bndf, blacklist = bl, alpha = ALPHA)
@@ -161,8 +229,12 @@ for (i in 1:ITERS){
 # -------------------------- #
 ```
 
-```{r "Explore result network"}
-bootArcs <- interactions[duplicated(interactions),]
+```{r "Plot result network"}
+if (ITERS > 1) {
+  bootArcs <- interactions[duplicated(interactions),]
+} else {
+ bootArcs <- interactions 
+}
 bootArcs$from <- as.character(bootArcs$from)
 bootArcs$to <- as.character(bootArcs$to)
 network <- empty.graph(gene.names)
@@ -170,6 +242,8 @@ arcs(network) <- bootArcs
 adjacency <- table(bootArcs)
 adjacency[adjacency > 0 ] = 1L
 saveRDS(adjacency, paste0("processed-data/",cell.type,"/bootAdjacency.rds"))
+adjacency <- readRDS(paste0("processed-data/",cell.type,"/bootAdjacency.rds"))
+
 
 # output edges of graph
 groups <- list()
@@ -177,13 +251,14 @@ for (i in seq(K.clusters)) {
   groups[[i]] <- names(network$nodes)[grep(paste0(".*_t",i),names(network$nodes))]
 }
 graphviz.plot(network,groups=groups)
+```
 
+```{r "Explore result network"}
 # Numbers of parents & children
 n.parents = unlist(lapply(network$nodes, function (x) {length(x$parents)}))
 n.children = unlist(lapply(network$nodes, function (x) {length(x$children)}))
 # Node degrees
 n.degree = unlist(lapply(c(n.parents,n.children), sum))
-plot(hist(n.degree))
 ```
 
 ```{r "Validate network"}
@@ -192,6 +267,22 @@ blalock_incpt_up <- read.gmt(paste0(marker.root,"BLALOCK_INCPT_AD_UP.gmt"))
 blalock_dn <- read.gmt(paste0(marker.root,"BLALOCK_AD_DN.gmt"))
 blalock_up <- read.gmt(paste0(marker.root,"BLALOCK_AD_UP.gmt"))
 gene.sets <- list("library"=adLib,"kegg"=kegg$genes,"incpt_dn"=blalock_incpt_dn$genes,"incpt_up"=blalock_incpt_up$genes,"dn"=blalock_dn$genes,"up"=blalock_up$genes)
+
+plot.adjacency.matrix <- function(adjacency, path) {
+  col_fun = colorRamp2(c(0, max(adjacency)), c("gray","red"))
+node.times.rows <- unlist(lapply(rownames(adjacency), function (x) {as.numeric(strsplit(x,"_t")[[1]][2])}))
+node.times.cols <- unlist(lapply(colnames(adjacency), function (x) {as.numeric(strsplit(x,"_t")[[1]][2])}))
+png(path, width=900, height=900)
+Heatmap(matrix(adjacency, dim(adjacency), dimnames = list(rownames(adjacency), colnames(adjacency))),
+        name='Network Arcs', column_title="To", column_title_side="top", row_title="From", row_title_side="left",
+        cluster_rows = FALSE, cluster_columns = FALSE, split = node.times.rows, column_split= node.times.cols,
+        row_names_side = "left", column_names_side = "top",
+        width = unit(20, "cm"), height = unit(20, "cm"), col=col_fun, border=TRUE, rect_gp = gpar(col = "white")) +
+  rowAnnotation("Number of Children" = anno_barplot(apply(adjacency,1,sum), width = unit(4, "cm")))
+}
+
+plot.adjacency.matrix(adjacency, "adjacencyTest.png")
+
 ```
 
 ```{r "Export network"}
@@ -199,5 +290,5 @@ gene.sets <- list("library"=adLib,"kegg"=kegg$genes,"incpt_dn"=blalock_incpt_dn$
 adjacency <- amat(network)
 
 # SIF
-write.sif(paste0("processed-data/",cell.type,"/DBN.sif"), network, df)
+write.sif(paste0("processed-data/",cell.type,"/DBN.sif"), network)
 ```

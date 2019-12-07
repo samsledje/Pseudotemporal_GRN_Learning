@@ -8,6 +8,7 @@ knitr::opts_chunk$set(echo = TRUE)
 require(bnlearn)
 require(dplyr)
 require(Rgraphviz)
+require(igraph)
 require(circlize)
 ```
 
@@ -51,37 +52,57 @@ sample.df <- function(matrix,samplesize){
   return(sampled)
 }
 
-BOOTSTRAP_SAMPLES = FALSE
-SAMPLE_SIZE = 2500
+sim.obs.from.distribution <- function (layers, N.SAMPLES) {
+  simulated.df <- NULL
+  
+  for (i in seq(K.clusters)) {
+    means <- apply(layers[[i]],2,mean)
+    std.devs <- apply(layers[[i]],2,sd)
+    params <- data.frame(means,std.devs)
+    layer.sims <- apply(params, 1, function(x){rnorm(N.SAMPLES, x[1], x[2])})
+    colnames(layer.sims) <- colnames(layers[[i]])
+    if (is.null(sim.df)) {
+      simulated.df <- layer.sims
+    } else {
+       simulated.df <- cbind(simulated.df, layer.sims) 
+    }
+  }
+  return(data.frame(simulated.df))
+}
 
-create_df <- function(layers){
+BOOTSTRAP_SAMPLES = FALSE
+
+create_df <- function(layers, sample.size){
   bl <- data.frame()
   bndf <- NULL
   prevdf <- NULL
   prevcols <- c()
   
+  bndf <- sim.obs.from.distribution(layers, sample.size)
+  
   for (i in (1:K.clusters)){
-    matrix <- layers[[i]]
+    #matrix <- layers[[i]]
     
-    if (BOOTSTRAP_SAMPLES) {
-      newdf <- sample.df(matrix,SAMPLE_SIZE)
-    } else {
-      newdf <- sim.df(matrix,SAMPLE_SIZE)
-    }
+    #if (BOOTSTRAP_SAMPLES) {
+      #newdf <- sample.df(matrix,SAMPLE_SIZE)
+    #} else {
+      
+      #newdf <- sim.df(matrix,SAMPLE_SIZE)
+    #}
 
     # only allow edges to future time points
     bl <- rbind(bl,
-                expand.grid(colnames(newdf),prevcols),
-                expand.grid(colnames(newdf),colnames(newdf)))
+                expand.grid(colnames(layers[[i]]),prevcols),
+                expand.grid(colnames(layers[[i]]),colnames(layers[[i]])))
   
-    prevcols <- c(prevcols,colnames(newdf))
-    if (is.null(bndf)){
-      bndf <- newdf
-    }
-    else{
-      bndf <- cbind(bndf,newdf)
-    }
-    prevdf <- newdf
+    prevcols <- c(prevcols,colnames(layers[[i]]))
+    #if (is.null(bndf)){
+    #  bndf <- newdf
+    #}
+    #else{
+    #  bndf <- cbind(bndf,newdf)
+    #}
+    #prevdf <- newdf
   }
   res <- list("df" = bndf, "bl" = bl)
   return(res)
@@ -107,6 +128,19 @@ write.sif <- function(file,network,df=NA) {
   write.table(arcs,file=file, row.names = FALSE, quote = FALSE,sep=" ")
   nodeTimes = list("names"=names(network$nodes),"times"=apply(as.matrix(unlist(names(network$nodes))), MARGIN=1, FUN=function (x) {as.numeric(strsplit(x,"_t")[[1]][2])}))
   write.table(nodeTimes,paste0(file,".timetable"), row.names = FALSE, quote = FALSE, sep=" ")
+}
+
+plot.adjacency.matrix <- function(adjacency, path) {
+  col_fun = colorRamp2(c(0, max(adjacency)), c("gray","red"))
+node.times.rows <- unlist(lapply(rownames(adjacency), function (x) {as.numeric(strsplit(x,"_t")[[1]][2])}))
+node.times.cols <- unlist(lapply(colnames(adjacency), function (x) {as.numeric(strsplit(x,"_t")[[1]][2])}))
+png(path, width=900, height=900)
+Heatmap(matrix(adjacency, dim(adjacency), dimnames = list(rownames(adjacency), colnames(adjacency))),
+        name='Bootstrap Confidence', column_title="To", column_title_side="top", row_title="From", row_title_side="left",
+        cluster_rows = FALSE, cluster_columns = FALSE, split = node.times.rows, column_split= node.times.cols,
+        row_names_side = "left", column_names_side = "top",
+        width = unit(20, "cm"), height = unit(20, "cm"), col=col_fun, border=TRUE, rect_gp = gpar(col = "white")) +
+  rowAnnotation("Number of Children" = anno_barplot(apply(adjacency,1,function(x) {sum(x > 0)}), width = unit(4, "cm")))
 }
 ```
 
@@ -145,12 +179,6 @@ dim(gene.df)
 #   - overall rank expression (high expression genes)
 gene.df <- gene.df[,intersect(names(high.expr.kegg.genes),colnames(gene.df))]
 dim(gene.df)
-```
-
-```{r "Prepare data for GRNVBEM"}
-# Write output for GRNVBEM
-pseudotime.sorted <- t(gene.df)[,order(clusts$DiseaseScore)]
-write.csv(pseudotime.sorted, file=paste0("processed-data/",cell.type,"/GRNVBEM.csv"))
 ```
 
 ```{r "Prepare layers"}
@@ -206,6 +234,13 @@ for (i in seq(K.clusters)) {
 gene.names <- unlist(list(cbind(unlist(lapply(reduced.layers,colnames)))))
 ```
 
+
+```{r "Prepare data for GRNVBEM"}
+# Write output for GRNVBEM
+pseudotime.sorted <- t(dbn.df)[,order(clusts$DiseaseScore)]
+write.csv(pseudotime.sorted, file=paste0("processed-data/",cell.type,"/GRNVBEM.csv"))
+```
+
 ```{r, warning=FALSE}
 # many different methods available for network learning
 # network <- pc.stable(bndf,blacklist = bl)
@@ -214,13 +249,12 @@ gene.names <- unlist(list(cbind(unlist(lapply(reduced.layers,colnames)))))
 
 # --------MAIN LOOP----------- #
 ITERS = 100
-#ALPHA = 0.22
 ALPHA = 0.05
 interactions <- data.frame()
 
 for (i in 1:ITERS){
-  print(i)
-  res <- create_df(reduced.layers)
+  if (i %% 10 == 0)
+  res <- create_df(reduced.layers, 10000)
   bndf <- res$df
   bl <- res$bl
   fi_network <- fast.iamb(bndf, blacklist = bl, alpha = ALPHA)
@@ -230,6 +264,11 @@ for (i in 1:ITERS){
 ```
 
 ```{r "Plot result network"}
+BOOT.THRESH = 8
+if (BOOT.THRESH >= ITERS) {
+  warning("Removal threshold is greater than number of iterations")
+}
+
 if (ITERS > 1) {
   bootArcs <- interactions[duplicated(interactions),]
 } else {
@@ -237,13 +276,18 @@ if (ITERS > 1) {
 }
 bootArcs$from <- as.character(bootArcs$from)
 bootArcs$to <- as.character(bootArcs$to)
-network <- empty.graph(gene.names)
-arcs(network) <- bootArcs
 adjacency <- table(bootArcs)
-adjacency[adjacency > 0 ] = 1L
+full.adjacency <- adjacency
+print(table(full.adjacency))
+adjacency[adjacency < BOOT.THRESH ] = 0L
 saveRDS(adjacency, paste0("processed-data/",cell.type,"/bootAdjacency.rds"))
 adjacency <- readRDS(paste0("processed-data/",cell.type,"/bootAdjacency.rds"))
+print(table(adjacency))
 
+network <- empty.graph(gene.names)
+adj <- melt.data.table(data.table(adjacency), id.vars = c('from','to'))
+adj <- adj[adj$value > 0]
+arcs(network) <- adj[,c('from','to')]
 
 # output edges of graph
 groups <- list()
@@ -259,36 +303,14 @@ n.parents = unlist(lapply(network$nodes, function (x) {length(x$parents)}))
 n.children = unlist(lapply(network$nodes, function (x) {length(x$children)}))
 # Node degrees
 n.degree = unlist(lapply(c(n.parents,n.children), sum))
+plot(density(n.children))
 ```
 
-```{r "Validate network"}
-blalock_incpt_dn <- read.gmt(paste0(marker.root,"BLALOCK_INCPT_AD_DN.gmt"))
-blalock_incpt_up <- read.gmt(paste0(marker.root,"BLALOCK_INCPT_AD_UP.gmt"))
-blalock_dn <- read.gmt(paste0(marker.root,"BLALOCK_AD_DN.gmt"))
-blalock_up <- read.gmt(paste0(marker.root,"BLALOCK_AD_UP.gmt"))
-gene.sets <- list("library"=adLib,"kegg"=kegg$genes,"incpt_dn"=blalock_incpt_dn$genes,"incpt_up"=blalock_incpt_up$genes,"dn"=blalock_dn$genes,"up"=blalock_up$genes)
-
-plot.adjacency.matrix <- function(adjacency, path) {
-  col_fun = colorRamp2(c(0, max(adjacency)), c("gray","red"))
-node.times.rows <- unlist(lapply(rownames(adjacency), function (x) {as.numeric(strsplit(x,"_t")[[1]][2])}))
-node.times.cols <- unlist(lapply(colnames(adjacency), function (x) {as.numeric(strsplit(x,"_t")[[1]][2])}))
-png(path, width=900, height=900)
-Heatmap(matrix(adjacency, dim(adjacency), dimnames = list(rownames(adjacency), colnames(adjacency))),
-        name='Network Arcs', column_title="To", column_title_side="top", row_title="From", row_title_side="left",
-        cluster_rows = FALSE, cluster_columns = FALSE, split = node.times.rows, column_split= node.times.cols,
-        row_names_side = "left", column_names_side = "top",
-        width = unit(20, "cm"), height = unit(20, "cm"), col=col_fun, border=TRUE, rect_gp = gpar(col = "white")) +
-  rowAnnotation("Number of Children" = anno_barplot(apply(adjacency,1,sum), width = unit(4, "cm")))
-}
-
-plot.adjacency.matrix(adjacency, "adjacencyTest.png")
-
+```{r "Visualize network"}
+plot.adjacency.matrix(adjacency, paste0("img/",cell.type,".8.adjacency.png"))
 ```
 
 ```{r "Export network"}
-# Adjacency Matrix
-adjacency <- amat(network)
-
 # SIF
 write.sif(paste0("processed-data/",cell.type,"/DBN.sif"), network)
 ```

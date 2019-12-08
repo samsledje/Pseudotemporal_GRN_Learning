@@ -159,56 +159,12 @@ for (i in 1:ITERS){
   interactions <- rbind(interactions,fi_network[["arcs"]])
 }
 
-BOOT.THRESH = 2
-if (BOOT.THRESH >= ITERS) {
-  warning("Removal threshold is greater than number of iterations")
-}
 
-if (ITERS > 1) {
-  bootArcs <- interactions[duplicated(interactions),]
-} else {
-  bootArcs <- interactions 
-}
-bootArcs$from <- as.character(bootArcs$from)
-bootArcs$to <- as.character(bootArcs$to)
-adjacency <- table(bootArcs)
-full.adjacency <- adjacency
-print(table(full.adjacency))
-adjacency[adjacency < BOOT.THRESH ] = 0L
-saveRDS(interactions, paste0("processed-data/",cell.type,"/interactions.rds"))
-saveRDS(adjacency, paste0("processed-data/",cell.type,"/bootAdjacency.rds"))
-adjacency <- readRDS(paste0("processed-data/",cell.type,"/bootAdjacency.rds"))
-print(table(adjacency))
-
-network <- empty.graph(gene.names)
-adj <- melt.data.table(data.table(adjacency), id.vars = c('from','to'))
-adj <- adj[adj$value > 0]
-arcs(network) <- adj[,c('from','to')]
-
-# output edges of graph
-groups <- list()
-for (i in seq(K.clusters)) {
-  groups[[i]] <- names(network$nodes)[grep(paste0(".*_t",i),names(network$nodes))]
-}
-graphviz.plot(network,groups=groups)
-```
-
-
+View(interactions[duplicated(interactions),])
 nrow(interactions[duplicated(interactions),])
 # -------------------------- #
 
-network <- fi_network
-print(length(network[["arcs"]]))
 
-# output edges of graph
-groups <- list()
-for (i in seq(K.clusters)) {
-  groups[[i]] <- names(network$nodes)[grep(paste0(".*_t",i),names(network$nodes))]
-}
-graphviz.plot(network,groups=groups)
-
-# Adjacency Matrix
-adjacency <- amat(network)
 
 # SIF
 write.sif <- function(file,network,df) {

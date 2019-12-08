@@ -145,7 +145,7 @@ create_df <- function(){
 
 # -------------------------- #
 set.seed(12345)
-ITERS = 100
+ITERS = 10
 #ALPHA = 0.22
 ALPHA = 0.05
 interactions <- data.frame()

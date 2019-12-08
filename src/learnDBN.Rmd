@@ -14,7 +14,9 @@ require(circlize)
 require(svglite)
 require(ACTIONet)
 require(SingleCellExperiment)
+require(ComplexHeatmap)
 require(splatter)
+require(data.table)
 ```
 
 ```{r "Define functions"}
@@ -57,9 +59,12 @@ sample.df <- function(matrix,samplesize){
   return(sampled)
 }
 
-sim.obs.from.distribution <- function (layers, N.SAMPLES, distribution="norm") {
+sim.obs.from.distribution <- function (layers, N.SAMPLES, distribution="poisson") {
   simulated.df <- NULL
   
+  if (!(distribution %in% c("norm", "splatter"))) {
+    stop("Invalid simulation distribution")
+  }
   for (i in seq(K.clusters)) {
     if (distribution == "norm") {
       means <- apply(layers[[i]],2,mean)
@@ -86,7 +91,7 @@ sim.obs.from.distribution <- function (layers, N.SAMPLES, distribution="norm") {
   return(data.frame(simulated.df))
 }
 
-create_df <- function(layers, sample.size, distribution="norm"){
+create_df <- function(layers, sample.size, distribution="poisson"){
   bl <- data.frame()
   bndf <- NULL
   prevdf <- NULL
@@ -174,22 +179,6 @@ gene.sets <- list("library"=adLib,"kegg"=kegg$genes,"incpt_dn"=blalock_incpt_dn$
 gene.df <- df[,intersect(adLib$genes,kegg$genes)]
 ```
 
-```{r "Subset genes"}
-# Subset genes based on:
-#   - expression change across time (variable genes)
-gene.stdevs = apply(gene.df, 2, sd)
-gene.stdev.ranks = order(gene.stdevs)
-names(gene.stdev.ranks) <- colnames(gene.df)
-norm.stdev.ranks = gene.stdev.ranks / dim(gene.df)[2]
-high.variable.gene.ranks <- gene.stdev.ranks[norm.stdev.ranks <= 0.5]
-gene.df <- gene.df[,names(high.variable.gene.ranks)]
-dim(gene.df)
-
-#   - overall rank expression (high expression genes)
-gene.df <- gene.df[,intersect(names(high.expr.kegg.genes),colnames(gene.df))]
-dim(gene.df)
-```
-
 ```{r "Prepare layers"}
 # Divide cells into layers based on clusters
 clusts$ScoreClusts = as.numeric(clusts$DiseaseRange)
@@ -224,14 +213,6 @@ Heatmap(avg.expression[top.difeq.genes,], cluster_columns = FALSE)
 ```
 
 ```{r "Where do chosen genes rank among all genes?"}
-#all.genes.avg.expr <- apply(df,2,mean)
-#all.genes.expr.rank <- order(all.genes.avg.expr)
-#names(all.genes.expr.rank) <- colnames(df)
-#chosen.genes.expr.rank <- all.genes.expr.rank[top.difeq.genes]
-#normalized.rank = chosen.genes.expr.rank / length(all.genes.expr.rank)
-#Heatmap(1 - normalized.rank)
-
-# Genes in top 75% of rank
 chosen.genes <- top.difeq.genes
 dbn.df <- gene.df[,chosen.genes]
 
@@ -258,13 +239,13 @@ write.csv(pseudotime.sorted, file=paste0("processed-data/",cell.type,"/GRNVBEM.c
 # gs_network <- gs(bndf, blacklist = bl, alpha = .05)[["arcs"]]
 
 # --------MAIN LOOP----------- #
-ITERS = 100
+ITERS = 10
 ALPHA = 0.05
 interactions <- data.frame()
 
 for (i in 1:ITERS){
   if (i %% 10 == 0) {print(i)}
-  res <- create_df(reduced.layers, 10000, distribution = "splatter")
+  res <- create_df(reduced.layers, 5000, distribution = "norm")
   bndf <- res$df
   bl <- res$bl
   fi_network <- fast.iamb(bndf, blacklist = bl, alpha = ALPHA)
@@ -274,7 +255,7 @@ for (i in 1:ITERS){
 ```
 
 ```{r "Plot result network"}
-BOOT.THRESH = 10
+BOOT.THRESH = 2
 if (BOOT.THRESH >= ITERS) {
   warning("Removal threshold is greater than number of iterations")
 }
@@ -318,7 +299,8 @@ plot(density(n.children))
 ```
 
 ```{r "Visualize network"}
-plot.adjacency.matrix(adjacency, paste0("img/",cell.type,".adjacency3.png"))
+plot.adjacency.matrix(adjacency, "test.png")
+#plot.adjacency.matrix(adjacency, paste0("img/",cell.type,".adjacency3.png"))
 ```
 
 ```{r "Verify simulated data"}

@@ -22,10 +22,10 @@ require(scran)
 If using an mtx file and metadata, create an sce object. If you already have an SCE, Seurat, or AnnData object, skip to the relevant section.
 ```{r "Create Single Cell Experiment"}
 # Matrix and Metadata files
-matrix.file.name = "data/Processed_10x_AD_data/filtered_count_matrix.mtx"
-colMetadata.file.name = "data/Processed_10x_AD_data/filtered_column_metadata.txt"
-idMapping.file.name = "data/Processed_10x_AD_data/id_mapping.csv"
-rowNames.file.name = "data/Processed_10x_AD_data/filtered_gene_row_names.txt"
+matrix.file.name = "raw-data/Processed_10x_AD_data/filtered_count_matrix.mtx"
+colMetadata.file.name = "raw-data/Processed_10x_AD_data/filtered_column_metadata.txt"
+idMapping.file.name = "raw-data/Processed_10x_AD_data/id_mapping.csv"
+rowNames.file.name = "raw-data/Processed_10x_AD_data/filtered_gene_row_names.txt"
 
 # Read in counts and metadata
 filtered.counts <- readMM(matrix.file.name)

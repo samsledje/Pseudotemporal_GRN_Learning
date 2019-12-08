@@ -7,9 +7,14 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r "Load Libraries", warning=FALSE, include=TRUE, results='hide'}
 require(bnlearn)
 require(dplyr)
+require(pscl)
 require(Rgraphviz)
 require(igraph)
 require(circlize)
+require(svglite)
+require(ACTIONet)
+require(SingleCellExperiment)
+require(splatter)
 ```
 
 ```{r "Define functions"}
@@ -52,16 +57,27 @@ sample.df <- function(matrix,samplesize){
   return(sampled)
 }
 
-sim.obs.from.distribution <- function (layers, N.SAMPLES) {
+sim.obs.from.distribution <- function (layers, N.SAMPLES, distribution="norm") {
   simulated.df <- NULL
   
   for (i in seq(K.clusters)) {
-    means <- apply(layers[[i]],2,mean)
-    std.devs <- apply(layers[[i]],2,sd)
-    params <- data.frame(means,std.devs)
-    layer.sims <- apply(params, 1, function(x){rnorm(N.SAMPLES, x[1], x[2])})
+    if (distribution == "norm") {
+      means <- apply(layers[[i]],2,mean)
+      std.devs <- apply(layers[[i]],2,sd)
+      params <- data.frame(means,std.devs)
+      layer.sims <- apply(params, 1, function(x){rnorm(N.SAMPLES, x[1], x[2])})
+    }
+    if (distribution == "splatter") {
+      sim.layer <- layers[[i]][apply(layers[[i]],1,function(x){sum(x) > 0}),]
+      dat.sce <- SingleCellExperiment(assays = list("counts"=t(sim.layer)))
+      m1 <- splatEstimate(dat.sce)
+      sim.sce <- splatSimulate(m1, batchCells=N.SAMPLES)
+      rownames(sim.sce) <- colnames(sim.layer)
+      layer.sims <- data.frame(lapply(data.frame(t(counts(sim.sce))), as.numeric))
+    }
+    
     colnames(layer.sims) <- colnames(layers[[i]])
-    if (is.null(sim.df)) {
+    if (is.null(simulated.df)) {
       simulated.df <- layer.sims
     } else {
        simulated.df <- cbind(simulated.df, layer.sims) 
@@ -70,25 +86,15 @@ sim.obs.from.distribution <- function (layers, N.SAMPLES) {
   return(data.frame(simulated.df))
 }
 
-BOOTSTRAP_SAMPLES = FALSE
-
-create_df <- function(layers, sample.size){
+create_df <- function(layers, sample.size, distribution="norm"){
   bl <- data.frame()
   bndf <- NULL
   prevdf <- NULL
   prevcols <- c()
   
-  bndf <- sim.obs.from.distribution(layers, sample.size)
+  bndf <- sim.obs.from.distribution(layers, sample.size, distribution = distribution)
   
   for (i in (1:K.clusters)){
-    #matrix <- layers[[i]]
-    
-    #if (BOOTSTRAP_SAMPLES) {
-      #newdf <- sample.df(matrix,SAMPLE_SIZE)
-    #} else {
-      
-      #newdf <- sim.df(matrix,SAMPLE_SIZE)
-    #}
 
     # only allow edges to future time points
     bl <- rbind(bl,
@@ -96,14 +102,8 @@ create_df <- function(layers, sample.size){
                 expand.grid(colnames(layers[[i]]),colnames(layers[[i]])))
   
     prevcols <- c(prevcols,colnames(layers[[i]]))
-    #if (is.null(bndf)){
-    #  bndf <- newdf
-    #}
-    #else{
-    #  bndf <- cbind(bndf,newdf)
-    #}
-    #prevdf <- newdf
   }
+  
   res <- list("df" = bndf, "bl" = bl)
   return(res)
 }
@@ -132,15 +132,24 @@ write.sif <- function(file,network,df=NA) {
 
 plot.adjacency.matrix <- function(adjacency, path) {
   col_fun = colorRamp2(c(0, max(adjacency)), c("gray","red"))
-node.times.rows <- unlist(lapply(rownames(adjacency), function (x) {as.numeric(strsplit(x,"_t")[[1]][2])}))
-node.times.cols <- unlist(lapply(colnames(adjacency), function (x) {as.numeric(strsplit(x,"_t")[[1]][2])}))
-png(path, width=900, height=900)
-Heatmap(matrix(adjacency, dim(adjacency), dimnames = list(rownames(adjacency), colnames(adjacency))),
+  node.times.rows <- unlist(lapply(rownames(adjacency), function (x) {as.numeric(strsplit(x,"_t")[[1]][2])}))
+  node.times.cols <- unlist(lapply(colnames(adjacency), function (x) {as.numeric(strsplit(x,"_t")[[1]][2])}))
+
+  ht <- Heatmap(matrix(adjacency, dim(adjacency), dimnames = list(rownames(adjacency), colnames(adjacency))),
         name='Bootstrap Confidence', column_title="To", column_title_side="top", row_title="From", row_title_side="left",
         cluster_rows = FALSE, cluster_columns = FALSE, split = node.times.rows, column_split= node.times.cols,
         row_names_side = "left", column_names_side = "top",
-        width = unit(20, "cm"), height = unit(20, "cm"), col=col_fun, border=TRUE, rect_gp = gpar(col = "white")) +
+        width = unit(30, "cm"), height = unit(30, "cm"), col=col_fun, border=TRUE, rect_gp = gpar(col = "white")) +
   rowAnnotation("Number of Children" = anno_barplot(apply(adjacency,1,function(x) {sum(x > 0)}), width = unit(4, "cm")))
+
+  fig.size <- 1200
+  if (endsWith(path, ".svg")) {
+    svglite(path, width=fig.size, height=fig.size)
+  } else {
+    png(path, width=fig.size, height=fig.size)
+  }
+  HM <- draw(ht)
+  dev.off()
 }
 ```
 
@@ -205,7 +214,7 @@ for (i in seq(K.clusters)) {
   }
 }
 
-# Find genes which cluster together with high change in expression
+# Find genes which cluster together with high change in expression across layers
 avg.expression <- data.frame(mat)
 rownames(avg.expression) <- names(gene.df)
 colnames(avg.expression) <- c(1,2,3,4)
@@ -215,17 +224,18 @@ Heatmap(avg.expression[top.difeq.genes,], cluster_columns = FALSE)
 ```
 
 ```{r "Where do chosen genes rank among all genes?"}
-all.genes.avg.expr <- apply(df,2,mean)
-all.genes.expr.rank <- order(all.genes.avg.expr)
-names(all.genes.expr.rank) <- colnames(df)
-chosen.genes.expr.rank <- all.genes.expr.rank[top.difeq.genes]
-normalized.rank = chosen.genes.expr.rank / length(all.genes.expr.rank)
-Heatmap(1 - normalized.rank)
+#all.genes.avg.expr <- apply(df,2,mean)
+#all.genes.expr.rank <- order(all.genes.avg.expr)
+#names(all.genes.expr.rank) <- colnames(df)
+#chosen.genes.expr.rank <- all.genes.expr.rank[top.difeq.genes]
+#normalized.rank = chosen.genes.expr.rank / length(all.genes.expr.rank)
+#Heatmap(1 - normalized.rank)
 
 # Genes in top 75% of rank
-chosen.genes <- normalized.rank[normalized.rank <= 0.75]
-dbn.df <- gene.df[,names(chosen.genes)]
+chosen.genes <- top.difeq.genes
+dbn.df <- gene.df[,chosen.genes]
 
+# Recalculate layers with only chosen genes
 reduced.layers = list()
 for (i in seq(K.clusters)) {
   reduced.layers[[i]] <- dbn.df[clusts$ScoreClusts == i,]
@@ -253,8 +263,8 @@ ALPHA = 0.05
 interactions <- data.frame()
 
 for (i in 1:ITERS){
-  if (i %% 10 == 0)
-  res <- create_df(reduced.layers, 10000)
+  if (i %% 10 == 0) {print(i)}
+  res <- create_df(reduced.layers, 10000, distribution = "splatter")
   bndf <- res$df
   bl <- res$bl
   fi_network <- fast.iamb(bndf, blacklist = bl, alpha = ALPHA)
@@ -264,7 +274,7 @@ for (i in 1:ITERS){
 ```
 
 ```{r "Plot result network"}
-BOOT.THRESH = 8
+BOOT.THRESH = 10
 if (BOOT.THRESH >= ITERS) {
   warning("Removal threshold is greater than number of iterations")
 }
@@ -280,6 +290,7 @@ adjacency <- table(bootArcs)
 full.adjacency <- adjacency
 print(table(full.adjacency))
 adjacency[adjacency < BOOT.THRESH ] = 0L
+saveRDS(interactions, paste0("processed-data/",cell.type,"/interactions.rds"))
 saveRDS(adjacency, paste0("processed-data/",cell.type,"/bootAdjacency.rds"))
 adjacency <- readRDS(paste0("processed-data/",cell.type,"/bootAdjacency.rds"))
 print(table(adjacency))
@@ -307,7 +318,50 @@ plot(density(n.children))
 ```
 
 ```{r "Visualize network"}
-plot.adjacency.matrix(adjacency, paste0("img/",cell.type,".8.adjacency.png"))
+plot.adjacency.matrix(adjacency, paste0("img/",cell.type,".adjacency3.png"))
+```
+
+```{r "Verify simulated data"}
+simulated.dat <- bndf
+sim.mat <- NULL
+for (i in seq(K.clusters)) {
+  sim.layer <- simulated.dat[,((i-1)*length(chosen.genes)+1):(i * length(chosen.genes))]
+  sim.layer.mean <- apply(data.frame(sim.layer),2,mean)
+  if (is.null(mat)) {
+    sim.mat <- data.table(sim.layer.mean)
+  } else {
+    sim.mat <- cbind(sim.mat, data.table(sim.layer.mean))
+  }
+}
+
+# Find genes which cluster together with high change in expression across layers
+sim.avg.expression <- data.frame(sim.mat)
+rownames(sim.avg.expression) <- chosen.genes
+colnames(sim.avg.expression) <- c(1,2,3,4)
+Heatmap(sim.avg.expression, cluster_columns = FALSE)
+
+
+sim.avg.expr <- apply(simulated.dat, 1, mean)
+names(simulated.dat) <- rep(names(chosen.genes), 4)
+```
+
+```{r}
+stacked.dat <- NULL
+for (i in seq(K.clusters)) {
+  sim.layer <- simulated.dat[,((i-1)*length(chosen.genes)+1):(i * length(chosen.genes))]
+  colnames(sim.layer) <- chosen.genes
+  if (is.null(stacked.dat)) {
+    stacked.dat <- data.table(sim.layer)
+  } else {
+    stacked.dat <- rbind(stacked.dat, data.table(sim.layer))
+  }
+}
+
+sim.dat.layer=c(rep(1,10000), rep(2,10000), rep(3,10000), rep(4,10000))
+sim.sce <- SingleCellExperiment(assays = list(logcounts = t(stacked.dat)))
+colData(sim.sce)$layer <- sim.dat.layer
+reduced.sim.sce <- ACTIONet::reduce.sce(sim.sce)
+verif.ACTIONet <- run.ACTIONet(reduced.sim.sce, k_max = 20, thread_no = 12)
 ```
 
 ```{r "Export network"}

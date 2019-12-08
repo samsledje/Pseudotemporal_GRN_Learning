@@ -62,11 +62,15 @@ sample.df <- function(matrix,samplesize){
 sim.obs.from.distribution <- function (layers, N.SAMPLES, distribution="poisson") {
   simulated.df <- NULL
   
-  if (!(distribution %in% c("norm", "splatter"))) {
+  if (!(distribution %in% c("poisson", "normal", "splatter"))) {
     stop("Invalid simulation distribution")
   }
   for (i in seq(K.clusters)) {
-    if (distribution == "norm") {
+    if (distribution == "poisson") {
+      means <- apply(layers[[i]],2,mean)
+      layer.sims <- apply(means, 1, function(x){rnorm(N.SAMPLES,x)})
+    }
+    if (distribution == "normal") {
       means <- apply(layers[[i]],2,mean)
       std.devs <- apply(layers[[i]],2,sd)
       params <- data.frame(means,std.devs)

@@ -68,7 +68,7 @@ sim.obs.from.distribution <- function (layers, N.SAMPLES, distribution="poisson"
   for (i in seq(K.clusters)) {
     if (distribution == "poisson") {
       means <- apply(layers[[i]],2,mean)
-      layer.sims <- apply(means, 1, function(x){rnorm(N.SAMPLES,x)})
+      layer.sims <- data.frame(lapply(data.frame(sapply(means, function(x){rpois(N.SAMPLES,x)})),as.numeric))
     }
     if (distribution == "normal") {
       means <- apply(layers[[i]],2,mean)
@@ -243,13 +243,13 @@ write.csv(pseudotime.sorted, file=paste0("processed-data/",cell.type,"/GRNVBEM.c
 # gs_network <- gs(bndf, blacklist = bl, alpha = .05)[["arcs"]]
 
 # --------MAIN LOOP----------- #
-ITERS = 10
+ITERS = 100
 ALPHA = 0.05
 interactions <- data.frame()
 
 for (i in 1:ITERS){
   if (i %% 10 == 0) {print(i)}
-  res <- create_df(reduced.layers, 5000, distribution = "norm")
+  res <- create_df(reduced.layers, 5000, distribution = "poisson")
   bndf <- res$df
   bl <- res$bl
   fi_network <- fast.iamb(bndf, blacklist = bl, alpha = ALPHA)
@@ -259,7 +259,7 @@ for (i in 1:ITERS){
 ```
 
 ```{r "Plot result network"}
-BOOT.THRESH = 2
+BOOT.THRESH = 10
 if (BOOT.THRESH >= ITERS) {
   warning("Removal threshold is greater than number of iterations")
 }
@@ -283,7 +283,7 @@ print(table(adjacency))
 network <- empty.graph(gene.names)
 adj <- melt.data.table(data.table(adjacency), id.vars = c('from','to'))
 adj <- adj[adj$value > 0]
-arcs(network) <- adj[,c('from','to')]
+arcs(network) <- cbind(adj$from, adj$to)
 
 # output edges of graph
 groups <- list()

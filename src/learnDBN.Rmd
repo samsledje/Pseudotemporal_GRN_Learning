@@ -1,7 +1,6 @@
 ```{r setup, include=FALSE, echo=FALSE}
 require("knitr")
-#opts_knit$set(root.dir = "/home/samsl/Pseudotemporal-GRNs")
-opts_knit$set(root.dir = "/Users/dkaur/Documents/Pseudotemporal_GRN_Learning")
+opts_knit$set(root.dir = "/home/samsl/Pseudotemporal-GRNs")
 knitr::opts_chunk$set(echo = TRUE)
 ```
 

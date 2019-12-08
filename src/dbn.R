@@ -1,9 +1,12 @@
-setwd("/home/samsl/Pseudotemporal-GRNs")
+#setwd("/home/samsl/Pseudotemporal-GRNs")
 #setwd("D:/Drive/PhD/GitHub/Pseudotemporal_GRN_Learning")
+setwd("/Users/dkaur/Documents/Pseudotemporal_GRN_Learning")
 
 require(bnlearn)
 require(dplyr)
 require(Rgraphviz)
+require(data.table)
+require(ComplexHeatmap)
 
 read.gmt <- function(file) {
   if (!grepl("\\.gmt$", file)[1]) {
@@ -17,7 +20,6 @@ read.gmt <- function(file) {
   geneSetDB = list("name"=name,"description"=desc,"genes"=geneSetDB)
   return(geneSetDB)
 }
-
 # Select which data to load
 cell.type = "Mic"
 clusts <- readRDS(paste0("processed-data/",cell.type,"/clusters.rds"))
@@ -27,20 +29,15 @@ df <- as.data.frame(readRDS(paste0("processed-data/",cell.type,"/top_gene_counts
 marker.root <- "processed-data/markers/"
 kegg <- read.gmt(paste0(marker.root,"KEGG_AD.gmt"))
 adLib <- list("name"="library","description"="Library in AD SCE exeriment","genes"=colnames(df))
-
 blalock_incpt_dn <- read.gmt(paste0(marker.root,"BLALOCK_INCPT_AD_DN.gmt"))
 blalock_incpt_up <- read.gmt(paste0(marker.root,"BLALOCK_INCPT_AD_UP.gmt"))
 blalock_dn <- read.gmt(paste0(marker.root,"BLALOCK_AD_DN.gmt"))
 blalock_up <- read.gmt(paste0(marker.root,"BLALOCK_AD_UP.gmt"))
-
-gene.sets <- list("kegg"=kegg$genes,"incpt_dn"=blalock_incpt_dn$genes,"incpt_up"=blalock_incpt_up$genes,"dn"=blalock_dn$genes,"up"=blalock_up$genes)
+blalock <- list("name"="blalock","description"="All blalock","genes"=c(blalock_incpt_dn$genes, blalock_incpt_up$genes, blalock_dn$genes, blalock_up$genes))
+gene.sets <- list("library"=adLib,"kegg"=kegg$genes,"incpt_dn"=blalock_incpt_dn$genes,"incpt_up"=blalock_incpt_up$genes,"dn"=blalock_dn$genes,"up"=blalock_up$genes,"blalock"=blalock)
 
 # Select subset of genes
 gene.df <- df[,intersect(adLib$genes,kegg$genes)]
-
-# Write output for GRNVBEM
-pseudotime.sorted <- t(gene.df)[,order(clusts$DiseaseScore)]
-write.csv(pseudotime.sorted, file=paste0("processed-data/",cell.type,"/GRNVBEM.csv"))
 
 # Divide cells into layers based on clusters
 clusts$ScoreClusts = as.numeric(clusts$DiseaseRange)
@@ -51,30 +48,58 @@ for (i in seq(K.clusters)) {
   layers[[i]] <- gene.df[clusts$ScoreClusts == i,]
   colnames(layers[[i]]) <- paste0(colnames(layers[[i]]),"_t",i)
 }
+gene.names <- unlist(list(cbind(unlist(lapply(layers,colnames)))))
+
+mat <- NULL
+for (i in seq(K.clusters)) {
+  layer.mean <- apply(layers[[i]],2,mean)
+  if (is.null(mat)) {
+    mat <- data.table(layer.mean)
+  } else {
+    mat <- cbind(mat, data.table(layer.mean))
+  }
+}
+
+# Find genes which cluster together with high change in expression across layers
+avg.expression <- data.frame(mat)
+rownames(avg.expression) <- names(gene.df)
+colnames(avg.expression) <- c(1,2,3,4)
+ht = Heatmap(avg.expression, cluster_columns = FALSE)
+top.difeq.genes <- rownames(avg.expression)[row_order(ht)][1:30]
+
+chosen.genes <- top.difeq.genes
+dbn.df <- gene.df[,chosen.genes]
+
+# Recalculate layers with only chosen genes
+reduced.layers = list()
+for (i in seq(K.clusters)) {
+  reduced.layers[[i]] <- dbn.df[clusts$ScoreClusts == i,]
+  colnames(reduced.layers[[i]]) <- paste0(colnames(reduced.layers[[i]]),"_t",i)
+}
+gene.names <- unlist(list(cbind(unlist(lapply(reduced.layers,colnames)))))
+
 
 # Rows = cells, Columns = genes
 sim.df <- function(matrix){
   rownames(matrix) <- c()
   rawdf <- as.data.frame(matrix)
-  rawdf[] <- lapply(rawdf, factor)
+  rawdf[] <- lapply(rawdf, as.numeric)
   
   # network learning requires > 1 possible value for each var
-  df <- select_if(rawdf,function(x) return(nlevels(x)>1))
+  #df <- select_if(rawdf,function(x) return(nlevels(x)>1))
   
   # learn from gene expression at each time step to generate data
-  network <- hc(df)
-  simdf <- rbn(network, data = df, 1000)
+  network <- hc(rawdf)
+  simdf <- rbn(network, data = rawdf, 1000)
   return(simdf)
 }
 
 sample.df <- function(matrix,samplesize){
   rownames(matrix) <- c()
   rawdf <- as.data.frame(matrix)
-  rawdf[] <- lapply(rawdf, factor)
-  
-  # network learning requires > 1 possible value for each var
+  rawdf[] <- lapply(rawdf, as.numeric)
   sampled <- sample_n(rawdf,samplesize,replace = TRUE)
-  sampled <- select_if(sampled,function(x) return(nlevels(x)>1))
+  #sampled <- select_if(sampled,function(x) return(nlevels(x)>1))
   return(sampled)
 }
 
@@ -87,7 +112,7 @@ create_df <- function(){
   prevcols <- c()
   
   for (i in (1:K.clusters)){
-    matrix <- layers[[i]]
+    matrix <- reduced.layers[[i]]
     
     if (BOOTSTRAP_SAMPLES) {
       newdf <- sample.df(matrix,2000)
@@ -130,25 +155,16 @@ for (i in 1:ITERS){
   res <- create_df()
   bndf <- res$df
   bl <- res$bl
-  fi_network <- fast.iamb(bndf, blacklist = bl, alpha = ALPHA)
+  fi_network <- fast.iamb(bndf, blacklist = bl)
   interactions <- rbind(interactions,fi_network[["arcs"]])
 }
 
-interactions[duplicated(interactions),]
+
+View(interactions[duplicated(interactions),])
+nrow(interactions[duplicated(interactions),])
 # -------------------------- #
 
-network <- fi_network
-print(length(network[["arcs"]]))
 
-# output edges of graph
-groups <- list()
-for (i in seq(K.clusters)) {
-  groups[[i]] <- names(network$nodes)[grep(paste0(".*_t",i),names(network$nodes))]
-}
-graphviz.plot(network,groups=groups)
-
-# Adjacency Matrix
-adjacency <- amat(network)
 
 # SIF
 write.sif <- function(file,network,df) {

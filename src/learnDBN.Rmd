@@ -1,6 +1,7 @@
 ```{r setup, include=FALSE, echo=FALSE}
 require("knitr")
 opts_knit$set(root.dir = "/home/samsl/Pseudotemporal-GRNs")
+opts_knit$set(root.dir = "/Users/dkaur/Documents/Pseudotemporal_GRN_Learning")
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
@@ -37,38 +38,37 @@ read.gmt <- function(file) {
 sim.df <- function(matrix,samplesize){
   rownames(matrix) <- c()
   rawdf <- as.data.frame(matrix)
-  rawdf[] <- lapply(rawdf, factor)
-  
-  # network learning requires > 1 possible value for each var
-  df <- select_if(rawdf,function(x) return(nlevels(x)>1))
+  rawdf[] <- lapply(rawdf, as.numeric)
   
   # learn from gene expression at each time step to generate data
-  network <- hc(df)
-  simdf <- rbn(network, data = df, samplesize)
+  network <- hc(rawdf)
+  simdf <- rbn(network, data = rawdf, samplesize)
   return(simdf)
 }
 
 sample.df <- function(matrix,samplesize){
   rownames(matrix) <- c()
   rawdf <- as.data.frame(matrix)
-  rawdf[] <- lapply(rawdf, factor)
+  rawdf[] <- lapply(rawdf, as.numeric)
   
   # network learning requires > 1 possible value for each var
   sampled <- sample_n(rawdf,samplesize,replace = TRUE)
-  sampled <- select_if(sampled,function(x) return(nlevels(x)>1))
   return(sampled)
 }
 
-sim.obs.from.distribution <- function (layers, N.SAMPLES, distribution="poisson") {
+sim.obs.from.distribution <- function (layers, N.SAMPLES, distribution="bayesian") {
   simulated.df <- NULL
   
-  if (!(distribution %in% c("poisson", "normal", "splatter"))) {
+  if (!(distribution %in% c("poisson", "normal", "splatter","bayesian"))) {
     stop("Invalid simulation distribution")
   }
   for (i in seq(K.clusters)) {
+    if (distribution == "bayesian"){
+      layer.sims <- sim.df(layers[[i]],N.SAMPLES)
+    }
     if (distribution == "poisson") {
       means <- apply(layers[[i]],2,mean)
-      layer.sims <- data.frame(lapply(data.frame(sapply(means, function(x){rpois(N.SAMPLES,x)})),as.numeric))
+      layer.sims <- apply(means, 1, function(x){rnorm(N.SAMPLES,x)})
     }
     if (distribution == "normal") {
       means <- apply(layers[[i]],2,mean)
@@ -95,7 +95,7 @@ sim.obs.from.distribution <- function (layers, N.SAMPLES, distribution="poisson"
   return(data.frame(simulated.df))
 }
 
-create_df <- function(layers, sample.size, distribution="poisson"){
+create_df <- function(layers, sample.size, distribution="bayesian"){
   bl <- data.frame()
   bndf <- NULL
   prevdf <- NULL
@@ -237,7 +237,7 @@ write.csv(pseudotime.sorted, file=paste0("processed-data/",cell.type,"/GRNVBEM.c
 # gs_network <- gs(bndf, blacklist = bl, alpha = .05)[["arcs"]]
 
 # --------MAIN LOOP----------- #
-ITERS = 100
+ITERS = 10
 ALPHA = 0.05
 N.SAMPLES = 5000
 interactions <- data.frame()
@@ -278,7 +278,7 @@ print(table(adjacency))
 network <- empty.graph(gene.names)
 adj <- melt.data.table(data.table(adjacency), id.vars = c('from','to'))
 adj <- adj[adj$value > 0]
-arcs(network) <- cbind(adj$from, adj$to)
+arcs(network) <- adj[,c('from','to')]
 
 # output edges of graph
 groups <- list()

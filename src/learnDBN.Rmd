@@ -1,6 +1,7 @@
 ```{r setup, include=FALSE, echo=FALSE}
 require("knitr")
-opts_knit$set(root.dir = "/home/samsl/Pseudotemporal-GRNs")
+#opts_knit$set(root.dir = "/home/samsl/Pseudotemporal-GRNs")
+opts_knit$set(root.dir = "/Users/dkaur/Documents/Pseudotemporal_GRN_Learning")
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
@@ -34,38 +35,37 @@ read.gmt <- function(file) {
 }
 
 # Rows = cells, Columns = genes
-sim.df <- function(matrix,samplesize){
+sim.df <- function(matrix){
   rownames(matrix) <- c()
   rawdf <- as.data.frame(matrix)
-  rawdf[] <- lapply(rawdf, factor)
-  
-  # network learning requires > 1 possible value for each var
-  df <- select_if(rawdf,function(x) return(nlevels(x)>1))
+  rawdf[] <- lapply(rawdf, as.numeric)
   
   # learn from gene expression at each time step to generate data
-  network <- hc(df)
-  simdf <- rbn(network, data = df, samplesize)
+  network <- hc(rawdf)
+  simdf <- rbn(network, data = rawdf, 1000)
   return(simdf)
 }
 
 sample.df <- function(matrix,samplesize){
   rownames(matrix) <- c()
   rawdf <- as.data.frame(matrix)
-  rawdf[] <- lapply(rawdf, factor)
+  rawdf[] <- lapply(rawdf, as.numeric)
   
   # network learning requires > 1 possible value for each var
   sampled <- sample_n(rawdf,samplesize,replace = TRUE)
-  sampled <- select_if(sampled,function(x) return(nlevels(x)>1))
   return(sampled)
 }
 
 sim.obs.from.distribution <- function (layers, N.SAMPLES, distribution="poisson") {
   simulated.df <- NULL
   
-  if (!(distribution %in% c("poisson", "normal", "splatter"))) {
+  if (!(distribution %in% c("poisson", "normal", "splatter","bayesian"))) {
     stop("Invalid simulation distribution")
   }
   for (i in seq(K.clusters)) {
+    if (distribution == "bayesian"){
+      layers.sims <- sim.df(layers[[i]])
+    }
     if (distribution == "poisson") {
       means <- apply(layers[[i]],2,mean)
       layer.sims <- apply(means, 1, function(x){rnorm(N.SAMPLES,x)})
@@ -95,7 +95,7 @@ sim.obs.from.distribution <- function (layers, N.SAMPLES, distribution="poisson"
   return(data.frame(simulated.df))
 }
 
-create_df <- function(layers, sample.size, distribution="poisson"){
+create_df <- function(layers, sample.size, distribution="bayesian"){
   bl <- data.frame()
   bndf <- NULL
   prevdf <- NULL
@@ -249,7 +249,7 @@ interactions <- data.frame()
 
 for (i in 1:ITERS){
   if (i %% 10 == 0) {print(i)}
-  res <- create_df(reduced.layers, 5000, distribution = "norm")
+  res <- create_df(reduced.layers, 5000, distribution = "bayesian")
   bndf <- res$df
   bl <- res$bl
   fi_network <- fast.iamb(bndf, blacklist = bl, alpha = ALPHA)

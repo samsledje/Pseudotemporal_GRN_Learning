@@ -1,6 +1,7 @@
 ```{r setup, include=FALSE, echo=FALSE}
 require("knitr")
 opts_knit$set(root.dir = "/home/samsl/Pseudotemporal-GRNs")
+opts_knit$set(root.dir = "/Users/dkaur/Documents/Pseudotemporal_GRN_Learning")
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
@@ -34,14 +35,14 @@ read.gmt <- function(file) {
 }
 
 # Rows = cells, Columns = genes
-sim.df <- function(matrix){
+sim.df <- function(matrix,samplesize){
   rownames(matrix) <- c()
   rawdf <- as.data.frame(matrix)
   rawdf[] <- lapply(rawdf, as.numeric)
   
   # learn from gene expression at each time step to generate data
   network <- hc(rawdf)
-  simdf <- rbn(network, data = rawdf, 1000)
+  simdf <- rbn(network, data = rawdf, samplesize)
   return(simdf)
 }
 
@@ -55,7 +56,7 @@ sample.df <- function(matrix,samplesize){
   return(sampled)
 }
 
-sim.obs.from.distribution <- function (layers, N.SAMPLES, distribution="poisson") {
+sim.obs.from.distribution <- function (layers, N.SAMPLES, distribution="bayesian") {
   simulated.df <- NULL
   
   if (!(distribution %in% c("poisson", "normal", "splatter","bayesian"))) {
@@ -63,7 +64,7 @@ sim.obs.from.distribution <- function (layers, N.SAMPLES, distribution="poisson"
   }
   for (i in seq(K.clusters)) {
     if (distribution == "bayesian"){
-      layers.sims <- sim.df(layers[[i]])
+      layer.sims <- sim.df(layers[[i]],N.SAMPLES)
     }
     if (distribution == "poisson") {
       means <- apply(layers[[i]],2,mean)

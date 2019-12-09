@@ -149,6 +149,7 @@ ITERS = 10
 #ALPHA = 0.22
 ALPHA = 0.05
 interactions <- data.frame()
+networkslist <- list()
 
 for (i in 1:ITERS){
   print(i)
@@ -156,6 +157,7 @@ for (i in 1:ITERS){
   bndf <- res$df
   bl <- res$bl
   pc_network <- si.hiton.pc(bndf, blacklist = bl)
+  networkslist[[i]] <- pc_network[["arcs"]]
   interactions <- rbind(interactions,pc_network[["arcs"]])
 }
 
@@ -163,7 +165,7 @@ for (i in 1:ITERS){
 nrow(interactions)
 nrow(interactions[duplicated(interactions),])
 # -------------------------- #
-
+strongedges <- custom.strength(networkslist,colnames(bndf))
 
 
 # SIF

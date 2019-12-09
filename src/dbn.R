@@ -155,7 +155,7 @@ for (i in 1:ITERS){
   res <- create_df()
   bndf <- res$df
   bl <- res$bl
-  pc_network <- pc.stable(bndf, blacklist = bl)
+  pc_network <- si.hiton.pc(bndf, blacklist = bl)
   interactions <- rbind(interactions,pc_network[["arcs"]])
 }
 

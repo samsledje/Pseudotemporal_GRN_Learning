@@ -155,12 +155,12 @@ for (i in 1:ITERS){
   res <- create_df()
   bndf <- res$df
   bl <- res$bl
-  fi_network <- fast.iamb(bndf, blacklist = bl)
-  interactions <- rbind(interactions,fi_network[["arcs"]])
+  pc_network <- pc.stable(bndf, blacklist = bl)
+  interactions <- rbind(interactions,pc_network[["arcs"]])
 }
 
 
-View(interactions[duplicated(interactions),])
+nrow(interactions)
 nrow(interactions[duplicated(interactions),])
 # -------------------------- #
 

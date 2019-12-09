@@ -131,7 +131,7 @@ listMode <- function(v) {
 correlated.state <- listMode(c(braak.vote, cerad.vote, cogdx.vote, disease.vote, active.mic.vote))
 
 disease.score <- ACTIONet.out$unification.out$H.core[correlated.state,]
-core.significance <- ACTIONet.out$unification.out$DE.core@assays[["significance"]]
+core.significance <- ACTIONet.out$unification.out$DE.core@assays$data$significance
 associated.genes <- rownames(core.significance)[order(core.significance[,correlated.state], decreasing=TRUE)]
 svg(paste("img/",cell.type,"_archetype_disease_score_gradient.svg",sep=""))
 plot.ACTIONet.gradient(ACTIONet.out,disease.score)

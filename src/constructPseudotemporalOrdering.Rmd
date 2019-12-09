@@ -64,7 +64,7 @@ plot.ACTIONet(ACTIONet.out, labels = ACTIONet.out$annotations[[selected.ind]]$La
 
 # Identify disease progression enriched archetypes
 annot.out <- annotate.archetypes.using.labels(ACTIONet.out, indicators[[selected.ind]], core = TRUE)
-png(paste("img/",cell.type,"_cell_state_",selected.ind,"_enrichment.png",sep=""))
+svg(paste("img/",cell.type,"_cell_state_",selected.ind,"_enrichment.svg",sep=""))
 Heatmap(t(annot.out$Enrichment), cluster_rows = FALSE, cluster_columns = FALSE, name='Enrichment', column_title='Cell State', column_title_side='bottom')
 ```
 
@@ -85,7 +85,7 @@ plot.ACTIONet(ACTIONet.out, labels = ACTIONet.out$annotations[["grade"]]$Labels)
 
 # Identify disease progression enriched archetypes
 annot.out <- annotate.archetypes.using.labels(ACTIONet.out, HD.dat$sce$grade, core=TRUE)
-png(paste("img/",cell.type,"_cell_state_",selected.ind,"_enrichment.png",sep=""))
+svg(paste("img/",cell.type,"_cell_state_",selected.ind,"_enrichment.png",sep=""))
 Heatmap(t(annot.out$Enrichment), cluster_rows = FALSE, cluster_columns = FALSE, name='Enrichment', column_title='Cell State', column_title_side='bottom')
 ```
 
@@ -94,13 +94,8 @@ We can verify the correlation of this cell state with progression by searching f
 ```{r "Pathway Enrichment"}
 data("nanoStringDB_human")
 ADmarkers <- nanoStringDB_human$AD
-HDmarkers <- as.matrix(cbind(rep(1,length(HD.markers$genes)), rep(1,length(HD.markers$genes))))
-colnames(HDmarkers) <- c("Disease.Association", "Nothing")
-rownames(HDmarkers) <- HD.markers$genes
-HDmarkers <- Matrix(HDmarkers, sparse=TRUE)
-enrichment.out <- t(geneset.enrichment.archetype(HD.dat$ACTIONet, ADmarkers))
 enrichment.out <- t(geneset.enrichment.archetype(ACTIONet.out, ADmarkers))
-png(paste0("img/",cell.type,"_cell_state_disease_enrichment.png"))
+svg(paste0("img/",cell.type,"_cell_state_disease_enrichment.svg"))
 Heatmap(t(enrichment.out), cluster_columns=FALSE, name='Enrichment', column_title = 'Cell State', column_title_side = 'bottom')
 ```
 
@@ -135,11 +130,10 @@ listMode <- function(v) {
 
 correlated.state <- listMode(c(braak.vote, cerad.vote, cogdx.vote, disease.vote, active.mic.vote))
 
-correlated.state <- 2
 disease.score <- ACTIONet.out$unification.out$H.core[correlated.state,]
-core.significance <- ACTIONet.out$unification.out$DE.core@assays@data$significance
+core.significance <- ACTIONet.out$unification.out$DE.core@assays[["significance"]]
 associated.genes <- rownames(core.significance)[order(core.significance[,correlated.state], decreasing=TRUE)]
-png(paste("img/",cell.type,"_archetype_disease_score_gradient.png",sep=""))
+svg(paste("img/",cell.type,"_archetype_disease_score_gradient.svg",sep=""))
 plot.ACTIONet.gradient(ACTIONet.out,disease.score)
 ```
 
@@ -181,7 +175,7 @@ data("gProfilerDB_human")
 gpADmarkers <- gProfilerDB_human$SYMBOL$`GO:BP`
 gp.enrichment.out <- geneset.enrichment.archetype(ACTIONet.out, gpADmarkers)
 gp.top <- gp.enrichment.out[order(gp.enrichment.out[,correlated.state], decreasing = TRUE),][1:20,]
-png(paste0("img/",cell.type,"_cell_state_pathway_enrichment.png"))
+svg(paste0("img/",cell.type,"_cell_state_pathway_enrichment.svg"))
 Heatmap(gp.top, cluster_columns=FALSE, name='Enrichment', column_title='Cell State', column_title_side='bottom')
 ```
 

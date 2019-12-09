@@ -150,14 +150,16 @@ ITERS = 10
 ALPHA = 0.05
 interactions <- data.frame()
 networkslist <- list()
+arcstrengths <- list()
 
 for (i in 1:ITERS){
   print(i)
   res <- create_df()
   bndf <- res$df
   bl <- res$bl
-  pc_network <- si.hiton.pc(bndf, blacklist = bl)
+  pc_network <- fast.iamb(bndf, blacklist = bl)
   networkslist[[i]] <- pc_network[["arcs"]]
+  arcstrengths[[i]] <- arc.strength(pc_network,data=bndf)
   interactions <- rbind(interactions,pc_network[["arcs"]])
 }
 

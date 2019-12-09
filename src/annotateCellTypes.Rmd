@@ -129,7 +129,7 @@ dev.off()
 Save the full annotated ACTIONet object for later analyses.
 ```{r "Save annotated"}
 # Full ACTIONet File
-full.ACTIONet.file <- "data/allCellsACTIONet.rds"
+full.ACTIONet.file <- "raw-data/allCellsACTIONet.rds"
 
 # Save annotated full ACTIONet
 saveRDS(ACTIONet.out, file = full.ACTIONet.file)

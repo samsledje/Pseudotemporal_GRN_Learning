@@ -1,7 +1,6 @@
 ```{r setup, include=FALSE, echo=FALSE}
 require("knitr")
 opts_knit$set(root.dir = "/home/samsl/Pseudotemporal-GRNs")
-opts_knit$set(root.dir = "/Users/dkaur/Documents/Pseudotemporal_GRN_Learning")
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
@@ -68,7 +67,7 @@ sim.obs.from.distribution <- function (layers, N.SAMPLES, distribution="bayesian
     }
     if (distribution == "poisson") {
       means <- apply(layers[[i]],2,mean)
-      layer.sims <- apply(means, 1, function(x){rnorm(N.SAMPLES,x)})
+      layer.sims <- data.frame(lapply(data.frame(sapply(means, function(x){rnorm(N.SAMPLES,x)})), as.numeric))
     }
     if (distribution == "normal") {
       means <- apply(layers[[i]],2,mean)
@@ -205,9 +204,11 @@ for (i in seq(K.clusters)) {
 avg.expression <- data.frame(mat)
 rownames(avg.expression) <- names(gene.df)
 colnames(avg.expression) <- c(1,2,3,4)
+avg.expression <- as.matrix(avg.expression)
 ht = Heatmap(avg.expression, cluster_columns = FALSE)
 top.difeq.genes <- rownames(avg.expression)[row_order(ht)][1:30]
-Heatmap(avg.expression[top.difeq.genes,], cluster_columns = FALSE)
+png(paste0("img/",cell.type,"_avg_layer_expression.png"))
+Heatmap(avg.expression[top.difeq.genes,], cluster_columns = FALSE, name="Average Expression Level")
 ```
 
 ```{r "Where do chosen genes rank among all genes?"}
@@ -237,7 +238,7 @@ write.csv(pseudotime.sorted, file=paste0("processed-data/",cell.type,"/GRNVBEM.c
 # gs_network <- gs(bndf, blacklist = bl, alpha = .05)[["arcs"]]
 
 # --------MAIN LOOP----------- #
-ITERS = 10
+ITERS = 100
 ALPHA = 0.05
 N.SAMPLES = 5000
 interactions <- data.frame()
@@ -245,7 +246,7 @@ networkslist <- list()
 
 for (i in 1:ITERS){
   if (i %% 10 == 0) {print(i)}
-  res <- create_df(reduced.layers, N.SAMPLES, distribution = "poisson")
+  res <- create_df(reduced.layers, N.SAMPLES, distribution = "bayesian")
   bndf <- res$df
   bl <- res$bl
   fi_network <- fast.iamb(bndf, blacklist = bl, alpha = ALPHA)
@@ -259,7 +260,7 @@ strongedges <- custom.strength(networkslist,colnames(bndf))
 ```
 
 ```{r "Plot result network"}
-BOOT.THRESH = 9
+BOOT.THRESH = 5
 if (BOOT.THRESH >= ITERS) {
   warning("Removal threshold is greater than number of iterations")
 }
@@ -275,9 +276,10 @@ adjacency <- table(bootArcs)
 full.adjacency <- adjacency
 print(table(full.adjacency))
 adjacency[adjacency < BOOT.THRESH ] = 0L
-saveRDS(interactions, paste0("processed-data/",cell.type,"/interactions.rds"))
-saveRDS(adjacency, paste0("processed-data/",cell.type,"/bootAdjacency.rds"))
-adjacency <- readRDS(paste0("processed-data/",cell.type,"/bootAdjacency.rds"))
+saveRDS(interactions, paste0("processed-data/",cell.type,"/bayes_interactions.rds"))
+saveRDS(adjacency, paste0("processed-data/",cell.type,"/bayes_bootAdjacency.rds"))
+adjacency <- readRDS(paste0("processed-data/",cell.type,"/bayes_bootAdjacency.rds"))
+interactions <- readRDS(paste0("processed-data/",cell.type,"/bayes_interactions.rds"))
 print(table(adjacency))
 
 network <- empty.graph(gene.names)
@@ -303,7 +305,8 @@ plot(density(n.children))
 ```
 
 ```{r "Visualize network"}
-plot.adjacency.matrix(adjacency, paste0("img/",cell.type,"_poisson_adjacency.png"))
+plot.adjacency.matrix(adjacency, "test.png")
+plot.adjacency.matrix(adjacency, paste0("img/",cell.type,"_bayes_adjacency.png"))
 ```
 
 ```{r "Verify simulated data"}
@@ -323,8 +326,8 @@ for (i in seq(K.clusters)) {
 sim.avg.expression <- data.frame(sim.mat)
 rownames(sim.avg.expression) <- chosen.genes
 colnames(sim.avg.expression) <- c(1,2,3,4)
-Heatmap(sim.avg.expression, cluster_columns = FALSE)
-
+png(paste0("img/",cell.type,"_bayes_sim_avg_layer_expression.png"))
+Heatmap(as.matrix(sim.avg.expression), cluster_columns = FALSE, name="Average Simulated Expression")
 ```
 
 ```{r}
@@ -351,5 +354,5 @@ verify.ACTIONet <- run.ACTIONet(reduced.sce, k_max = 20, thread_no = 12)
 
 ```{r "Export network"}
 # SIF
-write.sif(paste0("processed-data/",cell.type,"/DBN.sif"), network)
+write.sif(paste0("processed-data/",cell.type,"/poisson_DBN.sif"), network)
 ```

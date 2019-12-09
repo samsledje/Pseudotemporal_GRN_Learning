@@ -17,6 +17,7 @@ require(SingleCellExperiment)
 require(ComplexHeatmap)
 require(splatter)
 require(data.table)
+require(qgraph)
 ```
 
 ```{r "Define functions"}
@@ -278,8 +279,8 @@ print(table(full.adjacency))
 adjacency[adjacency < BOOT.THRESH ] = 0L
 saveRDS(interactions, paste0("processed-data/",cell.type,"/bayes_interactions.rds"))
 saveRDS(adjacency, paste0("processed-data/",cell.type,"/bayes_bootAdjacency.rds"))
-adjacency <- readRDS(paste0("processed-data/",cell.type,"/bayes_bootAdjacency.rds"))
-interactions <- readRDS(paste0("processed-data/",cell.type,"/bayes_interactions.rds"))
+adjacency <- readRDS(paste0("processed-data/",cell.type,"/bootAdjacency.rds"))
+interactions <- readRDS(paste0("processed-data/",cell.type,"/interactions.rds"))
 print(table(adjacency))
 
 network <- empty.graph(gene.names)
@@ -302,6 +303,10 @@ n.children = unlist(lapply(network$nodes, function (x) {length(x$children)}))
 # Node degrees
 n.degree = unlist(lapply(c(n.parents,n.children), sum))
 plot(density(n.children))
+
+central <- qgraph::centrality_auto(matrix(full.adjacency, dim(full.adjacency)))
+betweenness.sorted <-rownames(full.adjacency)[order(central$node.centrality$Betweenness)]
+closeness.sorted <- rownames(full.adjacency)[order(central$node.centrality$Closeness)]
 ```
 
 ```{r "Visualize network"}

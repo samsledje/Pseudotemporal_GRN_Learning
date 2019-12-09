@@ -145,7 +145,7 @@ create_df <- function(){
 
 # -------------------------- #
 set.seed(12345)
-ITERS = 100
+ITERS = 10
 #ALPHA = 0.22
 ALPHA = 0.05
 interactions <- data.frame()
@@ -155,12 +155,12 @@ for (i in 1:ITERS){
   res <- create_df()
   bndf <- res$df
   bl <- res$bl
-  fi_network <- fast.iamb(bndf, blacklist = bl)
-  interactions <- rbind(interactions,fi_network[["arcs"]])
+  pc_network <- si.hiton.pc(bndf, blacklist = bl)
+  interactions <- rbind(interactions,pc_network[["arcs"]])
 }
 
 
-View(interactions[duplicated(interactions),])
+nrow(interactions)
 nrow(interactions[duplicated(interactions),])
 # -------------------------- #
 

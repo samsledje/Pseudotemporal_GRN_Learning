@@ -242,6 +242,7 @@ ITERS = 100
 ALPHA = 0.05
 N.SAMPLES = 5000
 interactions <- data.frame()
+networkslist <- list()
 
 for (i in 1:ITERS){
   if (i %% 10 == 0) {print(i)}
@@ -249,8 +250,12 @@ for (i in 1:ITERS){
   bndf <- res$df
   bl <- res$bl
   fi_network <- fast.iamb(bndf, blacklist = bl, alpha = ALPHA)
+  networkslist[[i]] <- pc_network[["arcs"]]
   interactions <- rbind(interactions,fi_network[["arcs"]])
 }
+
+strongedges <- custom.strength(networkslist,colnames(bndf))
+
 # -------------------------- #
 ```
 

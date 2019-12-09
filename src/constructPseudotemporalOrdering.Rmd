@@ -64,27 +64,28 @@ plot.ACTIONet(ACTIONet.out, labels = ACTIONet.out$annotations[[selected.ind]]$La
 
 # Identify disease progression enriched archetypes
 annot.out <- annotate.archetypes.using.labels(ACTIONet.out, indicators[[selected.ind]], core = TRUE)
-png(paste("img/",cell.type,"_cell_state_",selected.ind,"_enrichment.png",sep=""))
+svg(paste("img/",cell.type,"_cell_state_",selected.ind,"_enrichment.svg",sep=""))
 Heatmap(t(annot.out$Enrichment), cluster_rows = FALSE, cluster_columns = FALSE, name='Enrichment', column_title='Cell State', column_title_side='bottom')
 ```
 
 ```{r "HD Find Cluster Markers"}
 # Import Clinical Data from ROSMAP
+ACTIONet.out <- HD.dat$ACTIONet
 clinical <- read.xlsx("/home/samsl/Pseudotemporal-GRNs/raw-data/Processed_HD_data/Human_HD_metedata.xlsx", 1, header=TRUE)
 clinical$Grade <- as.factor(as.numeric(clinical$Grade))
 clinical <- clinical[1:12,]
 
-grade.ind <- factor(unlist(lapply(colData(sce)$batch, function (x) { clinical[which(clinical$Batch.Order == x),"Grade"] })))
+grade.ind <- factor(unlist(lapply(colData(HD.dat$sce)$batch, function (x) { clinical[which(clinical$Batch.Order == x),"Grade"] })))
 
 # Annotate ACTIONet with each clinical indicator
-ACTIONet.out <- add.cell.annotations(ACTIONet.out, sce$grade, annotation.name="grade")
+ACTIONet.out <- add.cell.annotations(ACTIONet.out, HD.dat$sce$grade, annotation.name="grade")
 
 # Visualize  the clinical indicators in the ACTIONet layout
 plot.ACTIONet(ACTIONet.out, labels = ACTIONet.out$annotations[["grade"]]$Labels)
 
 # Identify disease progression enriched archetypes
-annot.out <- annotate.archetypes.using.labels(ACTIONet.out, grade.ind, core = TRUE)
-png(paste("img/",cell.type,"_cell_state_",selected.ind,"_enrichment.png",sep=""))
+annot.out <- annotate.archetypes.using.labels(ACTIONet.out, HD.dat$sce$grade, core=TRUE)
+svg(paste("img/",cell.type,"_cell_state_",selected.ind,"_enrichment.png",sep=""))
 Heatmap(t(annot.out$Enrichment), cluster_rows = FALSE, cluster_columns = FALSE, name='Enrichment', column_title='Cell State', column_title_side='bottom')
 ```
 
@@ -94,7 +95,7 @@ We can verify the correlation of this cell state with progression by searching f
 data("nanoStringDB_human")
 ADmarkers <- nanoStringDB_human$AD
 enrichment.out <- t(geneset.enrichment.archetype(ACTIONet.out, ADmarkers))
-png(paste0("img/",cell.type,"_cell_state_disease_enrichment.png"))
+svg(paste0("img/",cell.type,"_cell_state_disease_enrichment.svg"))
 Heatmap(t(enrichment.out), cluster_columns=FALSE, name='Enrichment', column_title = 'Cell State', column_title_side = 'bottom')
 ```
 
@@ -130,9 +131,9 @@ listMode <- function(v) {
 correlated.state <- listMode(c(braak.vote, cerad.vote, cogdx.vote, disease.vote, active.mic.vote))
 
 disease.score <- ACTIONet.out$unification.out$H.core[correlated.state,]
-core.significance <- ACTIONet.out$unification.out$DE.core@assays[["significance"]]
+core.significance <- ACTIONet.out$unification.out$DE.core@assays$data$significance
 associated.genes <- rownames(core.significance)[order(core.significance[,correlated.state], decreasing=TRUE)]
-png(paste("img/",cell.type,"_archetype_disease_score_gradient.png",sep=""))
+svg(paste("img/",cell.type,"_archetype_disease_score_gradient.svg",sep=""))
 plot.ACTIONet.gradient(ACTIONet.out,disease.score)
 ```
 
@@ -145,7 +146,7 @@ grade.enrich <- annotate.archetypes.using.labels(ACTIONet.out, grade.ind, core =
 grade.vote <- which.max(grade.enrich[,MAX.GRADE])
 
 DISEASE.ENRICH.COL <- 1
-disease.enrich <- t(geneset.enrichment.archetype(ACTIONet.out, ADmarkers))
+disease.enrich <- t(geneset.enrichment.archetype(HD.dat$ACTIONet, HD.markers$genes))
 disease.vote <- which.max(disease.enrich[,DISEASE.ENRICH.COL])
 
 ACTIVE.MIC.COL <- 2
@@ -174,7 +175,7 @@ data("gProfilerDB_human")
 gpADmarkers <- gProfilerDB_human$SYMBOL$`GO:BP`
 gp.enrichment.out <- geneset.enrichment.archetype(ACTIONet.out, gpADmarkers)
 gp.top <- gp.enrichment.out[order(gp.enrichment.out[,correlated.state], decreasing = TRUE),][1:20,]
-png(paste0("img/",cell.type,"_cell_state_pathway_enrichment.png"))
+svg(paste0("img/",cell.type,"_cell_state_pathway_enrichment.svg"))
 Heatmap(gp.top, cluster_columns=FALSE, name='Enrichment', column_title='Cell State', column_title_side='bottom')
 ```
 

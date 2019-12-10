@@ -1,3 +1,5 @@
 raw-data/**
-**/.Rdata
+**/*.nb.html
+.RData
+.Rhistory
 .Rproj.user

@@ -1,5 +1,7 @@
 # Psuedotemporal Analysis of Genetic Regulatory Networks in Neurodegenerative Disorders
 
+The final report is docs/Kaur_Pineda_Sledzieski_Pseudotemporal_Analysis.pdf
+
 ## Install
 
 ```
